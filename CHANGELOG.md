@@ -6,7 +6,7 @@ All notable changes to this mod. Versions follow [semantic versioning](https://s
 
 ### Changed
 - **Clearer help:** `/mod_tint` now shows three short tables (this window, every window of this repository, desktop app) instead of a block of text.
-- **Install guide for everyone:** the README walks through install, the one-time Developer Mode switch (Help → Troubleshooting → Enable Developer Mode…), pasting the desktop script, troubleshooting, updating and uninstalling.
+- **Simpler install, clearer desktop guide:** installing is three lines typed in Claude Code. The optional desktop tint now explains the one-time Developer Mode switch (Help → Troubleshooting → Enable Developer Mode…), pasting the script, troubleshooting, updating and uninstalling.
 
 ## [1.0.0] - 2026-10-09
 

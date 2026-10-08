@@ -19,29 +19,20 @@ A Claude Code mod (CC mod: a plugin that changes how Claude Code looks and behav
 | Your own messages | a border in the window's color, if you turn it on (`/mod_tint frame on`) |
 | **The whole desktop app** | with `/mod_tint css`, see below |
 
-## Install (2 minutes)
+## Install
 
-You need [Claude Code](https://code.claude.com) **2.1.287 or newer**. Check with `claude --version` in the Terminal.
+In Claude Code, type:
 
-**Step 1 · Install.** Open the **Terminal** app, paste these two lines one at a time, and press Enter after each:
-
-```bash
-claude plugin marketplace add JimmySadek/claude-code-tint-mod
+```
+/plugin marketplace add JimmySadek/claude-code-tint-mod
+/plugin install tint@claude-code-tint-mod
+/reload-plugins
 ```
 
-```bash
-claude plugin install tint@claude-code-tint-mod
-```
+Then type `/mod_tint` to check. You should see the help.
 
-You should see `✔ Successfully installed plugin: tint@claude-code-tint-mod`.
-
-> Prefer typing inside Claude Code? Use `/plugin marketplace add JimmySadek/claude-code-tint-mod`, then `/plugin install tint@claude-code-tint-mod`, then `/reload-plugins`.
-
-**Step 2 · Start a new session.** Mods load when a session starts, so open a **new** Claude Code session (terminal or desktop app).
-
-**Step 3 · Check.** Type `/mod_tint`. You should see the help with three short tables. After your second message, the window title starts with an emoji and a number, like `🧪1️⃣`.
-
-That's it for the basics. ✅
+> If `/plugin` doesn't work where you are, run this in the Terminal instead, then start a new session:
+> `claude plugin marketplace add JimmySadek/claude-code-tint-mod && claude plugin install tint@claude-code-tint-mod`
 
 ## Color the whole desktop app (optional)
 

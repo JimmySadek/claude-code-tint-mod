@@ -2,7 +2,7 @@
   <img src="assets/images/banner.png" alt="claude-code-tint-mod: tell your Claude Code windows apart" width="100%">
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.0.1-46AD5B)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.2-46AD5B)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757)](https://code.claude.com/docs/en/plugins/mods/overview)
 

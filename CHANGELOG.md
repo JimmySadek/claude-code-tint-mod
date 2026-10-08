@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.0.2] - 2026-10-09
+
+### Fixed
+- **The first emoji is now picked in the desktop app.** The desktop app runs Claude Code sessions through the SDK, which reports no person at the prompt when a session starts, so the automatic pick never ran there and windows kept a plain color square. A repository without an identity now gets one on your first message in any session that is drawn somewhere (desktop app, terminal, editor). Scripted `claude -p` runs still never pick.
+
 ## [1.0.1] - 2026-10-09
 
 ### Changed

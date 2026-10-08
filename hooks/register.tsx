@@ -613,6 +613,20 @@ function desktopRepos(choices: Record<string, RepoChoice>): Record<string, [stri
   return out
 }
 
+// Once per session: a repo without an identity gets one on the first prompt when the
+// session draws somewhere (desktop app, terminal, editor). pickIdentity returns at once
+// when the repo already has an emoji and a color, so this costs nothing after that.
+let pickTried = false
+async function pickOnFirstPrompt($: EngineInterface): Promise<void> {
+  if (pickTried) return
+  const key = await read($, repo)
+  if (key === null) return
+  const surfaces = await $.session.surfaces().catch((): readonly RenderSurface[] => [])
+  if (surfaces.length === 0) return
+  pickTried = true
+  void pickIdentity($, key).catch(() => null)
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -634,9 +648,16 @@ export const register: Register = on => {
       await heartbeat($)
       await refreshStatus($)
       // The first window of a repo without an identity asks Claude for one in
-      // the background; the hashed color shows until it is saved. Scripted
-      // runs (claude -p) never pick, so temp folders do not fill repos.json.
-      if (e.isInteractive) void pickIdentity($, key).catch(() => null)
+      // the background; the hashed color shows until it is saved. Under the
+      // REPL that happens now. The desktop app runs sessions through the SDK
+      // (isInteractive false at start), so there the first prompt picks it.
+      // Scripted runs (claude -p) draw nowhere and never pick, so temp folders
+      // do not fill repos.json.
+      pickTried = false
+      if (e.isInteractive) {
+        pickTried = true
+        void pickIdentity($, key).catch(() => null)
+      }
       // The terminal colors the prompt box border; the desktop ignores /color.
       if ((await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('terminal')) {
         const barColor = BAR[nearestName((await read($, color)) ?? autoColor(key))] ?? 'default'
@@ -667,6 +688,7 @@ export const register: Register = on => {
     if (sessionTitle) result = { ...result, sessionTitle }
     // Only your own prompts count; wakeups, notices and other sessions' messages do not.
     if (e.source === undefined || e.source === 'user') {
+      await pickOnFirstPrompt($).catch(() => undefined)
       const note = await titleNudge($, e.session_title).catch(() => undefined)
       if (note) result = { ...result, additionalContext: [...(result.additionalContext ?? []), note] }
     }

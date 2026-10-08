@@ -19,7 +19,7 @@ type World = {
 // out, no command can run (not macOS), so the color is Claude's own.
 function setup(
   on: Parameters<TestBody>[1], repoName: string, reply: string | null, saved: object = {},
-  measures?: Record<string, string>,
+  measures?: Record<string, string>, surfaces: string[] = ['desktop'],
 ): World {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
@@ -33,7 +33,7 @@ function setup(
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: root }))
   on('session.repo', () => ({ value: { root, remote: null, internal: false, name: null } }))
-  on('session.surfaces', () => ({ value: ['desktop'] as never }))
+  on('session.surfaces', () => ({ value: surfaces as never }))
   on('fs.read', ($, e) => {
     const text = files.get(e.path)
     return text === undefined ? { deny: 'ENOENT' } : { value: text }
@@ -138,6 +138,32 @@ test('when the pick fails, the hashed color shows and nothing is saved', async (
 test('a scripted run (claude -p) never asks Claude for an identity', async ($, on) => {
   const world = setup(on, 'scratch', '{"emoji":"📝","color":"#3B82F6"}')
   await $.session.start({ cwd: '/work/scratch', surface: 'terminal', isInteractive: false })
+  await world.clock.settle()
+  expect(world.asked.length).toBe(0)
+  expect(saved(world)).toEqual({})
+})
+
+test('desktop app (an SDK session): the first prompt picks the identity, once', async ($, on) => {
+  const world = setup(on, 'notes-app', '{"emoji":"📝","color":"#2563EB"}')
+  // The desktop app starts sessions through the SDK: no person at the prompt yet.
+  await $.session.start({ cwd: '/work/notes-app', surface: null, isInteractive: false })
+  await world.clock.settle()
+  expect(world.asked.length).toBe(0)
+
+  await title($, 'First message')
+  await world.clock.settle()
+  expect(world.asked.length).toBe(1)
+  expect(saved(world)['notes-app']).toEqual({ icon: '📝', color: '#2563EB' })
+
+  await title($, 'Second message')
+  await world.clock.settle()
+  expect(world.asked.length).toBe(1)
+})
+
+test('a scripted run that draws nowhere never picks, even on prompts', async ($, on) => {
+  const world = setup(on, 'scratch', '{"emoji":"📝","color":"#3B82F6"}', {}, undefined, [])
+  await $.session.start({ cwd: '/work/scratch', surface: null, isInteractive: false })
+  await title($, 'A scripted prompt')
   await world.clock.settle()
   expect(world.asked.length).toBe(0)
   expect(saved(world)).toEqual({})

@@ -131,38 +131,28 @@
     return titles.get(sid) ?? ''
   }
 
-  // Repos learned from the sidebar, so a new repo needs no new copy of this script:
-  // a thread row's heading is the nearest text above it that is not in a thread row, and the
-  // repo's emoji is the one its threads' titles start with ("🗂️1️⃣ Repo-fit check").
-  // A heading counts only when every emoji-titled thread under it shares one emoji, so a date
-  // or section heading over threads of several repos is never taken for a repo.
+  // Repos learned from the sidebar, so a new repo needs no new copy of this script.
+  // Each repo heading is a row keyed "label:project-<folder path>", in the same section box
+  // (class group/section) as that repo's threads; a thread belongs to the last heading above it.
+  // The repo's emoji is the one its most recent thread's title starts with ("🗂️1️⃣ Repo-fit check").
   const headingOf = row => {
-    let group = row.parentElement
-    for (let i = 0; group && group !== document.body && i < 6; i++, group = group.parentElement) {
-      const above = leaves(group).filter(el =>
-        !el.closest('[data-row-key]') && !skip(el) && /[\p{L}\p{N}]/u.test(bare(el.textContent || '')) &&
-        (el.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING))
-      if (above.length) return bare(above[above.length - 1].textContent)
+    const section = row.closest('[class*="group/section"]')
+    let name = null
+    for (const el of section?.querySelectorAll('[data-row-key^="label:project-"]') ?? []) {
+      if (el.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) name = bare(el.textContent || '') || name
     }
-    return null
+    return name
   }
   const learn = () => {
-    const seen = new Map()   // heading -> emojis of its threads
+    const learned = {}
     const bySid = new Map()
     for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
       const name = headingOf(row)
-      if (!name || name.length > 80) continue
+      if (!name) continue
       const sid = row.getAttribute('data-row-key').slice(5)
       bySid.set(sid, name)
-      if (!seen.has(name)) seen.set(name, new Set())
       const emoji = TITLE.exec(titleOf(sid))?.[1]
-      if (emoji) seen.get(name).add(emoji)
-    }
-    const learned = {}
-    for (const [name, emojis] of seen) {
-      if (emojis.size !== 1 || REPOS[name]) continue
-      const [emoji] = emojis
-      learned[name] = [colorOf(emoji), emoji]
+      if (emoji && !learned[name] && !REPOS[name]) learned[name] = [colorOf(emoji), emoji]
     }
     return { learned, bySid }
   }

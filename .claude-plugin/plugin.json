@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Tells Claude Code windows apart: an emoji and color per repository, a number per window, and an optional whole-app tint for the desktop app. /mod_tint to change it.",
   "author": { "name": "GamalElDin Sadek" },
-  "homepage": "https://github.com/JimmySadek/window-tint",
+  "homepage": "https://github.com/JimmySadek/claude-code-tint-mod",
   "license": "MIT",
   "types": "./types/index.d.ts"
 }

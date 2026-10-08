@@ -1,19 +1,31 @@
 {
-  "name": "window-tint",
+  "name": "claude-code-tint-mod",
   "owner": {
     "name": "GamalElDin Sadek",
-    "url": "https://github.com/JimmySadek/window-tint"
+    "url": "https://github.com/JimmySadek/claude-code-tint-mod"
   },
   "plugins": [
     {
       "name": "tint",
       "source": "./",
-      "description": "Tells Claude Code windows apart: an emoji and color per repository, a number per window, and an optional whole-app tint for the desktop app.",
+      "description": "Claude Code mod (CC tint mod): color each window by its repository, ring the focused window, and tint the whole Claude desktop app.",
       "version": "1.0.0",
-      "author": { "name": "GamalElDin Sadek" },
-      "homepage": "https://github.com/JimmySadek/window-tint",
+      "author": {
+        "name": "GamalElDin Sadek"
+      },
+      "homepage": "https://github.com/JimmySadek/claude-code-tint-mod",
       "license": "MIT",
-      "keywords": ["mod", "windows", "split view", "color", "desktop", "theme"]
+      "keywords": [
+        "claude-code",
+        "claude-code-mod",
+        "cc",
+        "mod",
+        "tint",
+        "theme",
+        "split view",
+        "windows",
+        "desktop"
+      ]
     }
   ]
 }

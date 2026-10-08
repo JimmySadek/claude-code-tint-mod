@@ -1,6 +1,6 @@
-# window-tint
+# claude-code-tint-mod
 
-A Claude Code mod (a plugin that changes how Claude Code looks and behaves) that helps you tell split windows apart. Every repository gets one identity (an emoji that says what the repo is, and a color taken from that emoji), and every window of a repository gets a number.
+A Claude Code mod (CC mod: a plugin that changes how Claude Code looks and behaves) that helps you tell split windows apart. Every repository gets one identity (an emoji that says what the repo is, and a color taken from that emoji), and every window of a repository gets a number.
 
 | Where | What you see |
 |---|---|
@@ -12,16 +12,16 @@ A Claude Code mod (a plugin that changes how Claude Code looks and behaves) that
 ## Install
 
 ```
-/plugin marketplace add JimmySadek/window-tint
-/plugin install tint@window-tint
+/plugin marketplace add JimmySadek/claude-code-tint-mod
+/plugin install tint@claude-code-tint-mod
 /reload-plugins
 ```
 
 To update later:
 
 ```
-/plugin marketplace update window-tint
-/plugin update tint@window-tint
+/plugin marketplace update claude-code-tint-mod
+/plugin update tint@claude-code-tint-mod
 ```
 
 ## Color the whole desktop app

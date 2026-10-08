@@ -1,0 +1,19 @@
+{
+  "name": "window-tint",
+  "owner": {
+    "name": "GamalElDin Sadek",
+    "url": "https://github.com/JimmySadek/window-tint"
+  },
+  "plugins": [
+    {
+      "name": "tint",
+      "source": "./",
+      "description": "Tells Claude Code windows apart: an emoji and color per repository, a number per window, and an optional whole-app tint for the desktop app.",
+      "version": "1.0.0",
+      "author": { "name": "GamalElDin Sadek" },
+      "homepage": "https://github.com/JimmySadek/window-tint",
+      "license": "MIT",
+      "keywords": ["mod", "windows", "split view", "color", "desktop", "theme"]
+    }
+  ]
+}

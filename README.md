@@ -1,6 +1,16 @@
+<p align="center">
+  <img src="assets/images/banner.png" alt="claude-code-tint-mod: tell your Claude Code windows apart" width="100%">
+</p>
+
+[![Version](https://img.shields.io/badge/version-1.0.0-46AD5B)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757)](https://code.claude.com/docs/en/plugins/mods/overview)
+
 # claude-code-tint-mod
 
-A Claude Code mod (CC mod: a plugin that changes how Claude Code looks and behaves) that helps you tell split windows apart. Every repository gets one identity (an emoji that says what the repo is, and a color taken from that emoji), and every window of a repository gets a number.
+A Claude Code mod (CC mod: a plugin that changes how Claude Code looks and behaves) that helps you tell your windows apart. Every repository gets one identity (an emoji that says what the repository is, and a color taken from that emoji), and every window of a repository gets a number.
+
+**Why:** with two or three Claude Code windows side by side, it is easy to type into the wrong one. This mod gives each repository its color, puts a ring around the window you are in, and keeps the sidebar calm except for what you are working on.
 
 | Where | What you see |
 |---|---|
@@ -17,12 +27,14 @@ A Claude Code mod (CC mod: a plugin that changes how Claude Code looks and behav
 /reload-plugins
 ```
 
-To update later:
+## Update
 
 ```
 /plugin marketplace update claude-code-tint-mod
 /plugin update tint@claude-code-tint-mod
 ```
+
+Restart Claude Code afterwards. If the desktop tint changed (see the [changelog](CHANGELOG.md)), run `/mod_tint css` again and paste it into the app. How versions and releases work: [docs/releasing.md](docs/releasing.md).
 
 ## Color the whole desktop app
 
@@ -44,7 +56,7 @@ To turn it off, run the script again. Reloading the app also removes it. To make
 
 **What it touches:** only how the open page looks. It sends nothing, stores nothing, changes no file and does not touch your sessions or their real titles. Shortened titles and colors are put back when you run it again.
 
-**If an app update breaks it:** type `/mod_tint css scan`, run that script the same way, and compare its report with the selectors listed at the top of `desktop/tint.js`. The scan only reads.
+**If an app update breaks it:** type `/mod_tint css scan`, run that script the same way, and compare its report with the selectors listed at the top of `desktop/tint.js`. The scan only reads. Details: [docs/how-it-works.md](docs/how-it-works.md). Please [open an issue](../../issues/new/choose) with the report.
 
 ## Commands
 

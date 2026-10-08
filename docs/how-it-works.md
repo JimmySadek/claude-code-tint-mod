@@ -1,0 +1,43 @@
+# How it works
+
+## Two parts
+
+| Part | Where it runs | What it does |
+|---|---|---|
+| **The mod** (`hooks/register.tsx`) | inside Claude Code, in every session | repository identity, window numbers, titles, terminal strip, `/mod_tint` commands |
+| **The desktop tint** (`desktop/tint.js`) | inside the Claude desktop app's page, after you paste it | everything you see around the conversation: rings, tints, sidebar, loading dots |
+
+Why two parts: a mod can draw inside the conversation, but it is sealed off from the app's page around it (no access to the page, by design). The desktop app also has no setting for user styles. So the whole-app part is a small script that you choose to run in the app's own DevTools console. `/mod_tint css` fills in your repositories' colors and copies it.
+
+## Identity
+
+- **Emoji:** the first window of a new repository asks Claude Haiku once for an emoji that fits the repository. It is saved in `~/.claude/window-tint/repos.json` and never asked again. `/mod_tint icon 🧪` or `/mod_tint repick` change it.
+- **Color:** measured from the emoji as macOS draws it, by `helpers/emoji-color.swift` (compiled on first use into `~/.claude/window-tint/`). If the emoji is dull or grey, Claude's suggested color is kept. `/mod_tint color #hex` sets one by hand.
+- **Number:** windows of the same repository agree on numbers through small files in `~/.claude/window-tint/windows/`.
+
+## The desktop tint
+
+What it looks for in the app's page (measured on Claude desktop 2.26454, October 2026):
+
+| Part | How it is found |
+|---|---|
+| A window | `.epitaxy-chat-panel` |
+| The session it shows | `[data-session-id]` inside the window |
+| Its sidebar row | `[data-row-key="code:<session id>"]`; the highlight is the row's `.group` box |
+| The message box | `[data-cds="ChatComposer"]`, its text input `.bg-surface-3` |
+| Loading dots / Claude's mark | `[data-cds="WorkingMark"]` / `svg[data-cds="Spark"]` |
+| Colors | the app's `--cds-surface-*` and `--cds-clay` variables |
+
+How it draws:
+
+- **Tints** set the app's own color variables inside each window, so the app keeps drawing everything itself.
+- **The ring** is a layer on the slot around the window, a few pixels outside the window's edge. The window is narrowed slightly so the gap is even on all sides.
+- **Loading dots** are drawn in a fixed orange that ignores color settings, so a CSS filter turns that orange into the window's color.
+- **Titles** are shortened on screen only (`🧪3️⃣ Title` shows as `3️⃣ Title`); the real session titles never change.
+- **Redraws** happen when the page changes, when you click into another window, and when a window changes size.
+
+Running the script again removes everything it added and puts the shortened titles back. Reloading the app does the same.
+
+## Privacy
+
+The desktop script reads only the open page, sends nothing, stores nothing and changes no file. The mod reads and writes only `~/.claude/window-tint/`, plus one small Claude Haiku call per new repository.

@@ -134,12 +134,18 @@
   // Repos learned from the sidebar, so a new repo needs no new copy of this script.
   // Each repo heading is a row keyed "label:project-<folder path>", in the same section box
   // (class group/section) as that repo's threads; a thread belongs to the last heading above it.
-  // The repo's emoji is the one its most recent thread's title starts with ("🗂️1️⃣ Repo-fit check").
+  // The repo's emoji is the one its most recent thread's title starts with ("🗂️1️⃣ Repo-fit check"),
+  // skipping the plain color squares older versions used before an emoji was picked.
+  // A heading counts only when its name is the end of its folder path (not "No folder").
+  const SQUARES = new Set(['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '⬜'])
+  const plain = text => bare(text.replace(/[\p{Co}\p{Cf}]/gu, ''))   // icon glyphs and invisible marks out
   const headingOf = row => {
     const section = row.closest('[class*="group/section"]')
     let name = null
     for (const el of section?.querySelectorAll('[data-row-key^="label:project-"]') ?? []) {
-      if (el.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING) name = bare(el.textContent || '') || name
+      if (!(el.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING)) continue
+      const text = plain(el.textContent || ''), path = el.getAttribute('data-row-key').slice(14).replace(/[\\/]+$/, '')
+      name = text && path.split(/[\\/]/).pop() === text ? text : null
     }
     return name
   }
@@ -152,7 +158,8 @@
       const sid = row.getAttribute('data-row-key').slice(5)
       bySid.set(sid, name)
       const emoji = TITLE.exec(titleOf(sid))?.[1]
-      if (emoji && !learned[name] && !REPOS[name]) learned[name] = [colorOf(emoji), emoji]
+      if (!emoji || REPOS[name] || (learned[name] && !SQUARES.has(learned[name][1]))) continue
+      if (!learned[name] || !SQUARES.has(emoji)) learned[name] = [colorOf(emoji), emoji]
     }
     return { learned, bySid }
   }
@@ -348,7 +355,7 @@
     const labels = []
     for (const el of leaves(document.body)) {
       if (skip(el)) continue
-      const repo = known[bare(el.textContent || '')]
+      const repo = known[plain(el.textContent || '')]
       if (!repo) continue
       set(el, 'color', readable(repo[0]))
       set(el, 'font-weight', '700')
@@ -370,7 +377,7 @@
         if (inside.length === 1) { heading = inside[0]; break }
         if (inside.length > 1) break
       }
-      const hoverColor = (heading && known[bare(heading.textContent || '')]?.[0]) ?? colorOf(TITLE.exec(title)?.[1])
+      const hoverColor = (heading && known[plain(heading.textContent || '')]?.[0]) ?? colorOf(TITLE.exec(title)?.[1])
       if (hoverColor) {
         row.setAttribute('data-wt-row', '')
         set(row, '--wt-hover', wash({ color: hoverColor, n: 1 }, 0.16, 1))

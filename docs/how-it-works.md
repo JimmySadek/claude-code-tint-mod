@@ -7,7 +7,7 @@
 | **The mod** (`hooks/register.tsx`) | inside Claude Code, in every session | repository identity, window numbers, titles, terminal strip, `/mod_tint` commands |
 | **The desktop tint** (`desktop/tint.js`) | inside the Claude desktop app's page, after you paste it | everything you see around the conversation: rings, tints, sidebar, loading dots |
 
-Why two parts: a mod can draw inside the conversation, but it is sealed off from the app's page around it (no access to the page, by design). The desktop app also has no setting for user styles. So the whole-app part is a small script that you choose to run in the app's own DevTools console. `/mod_tint css` fills in your repositories' colors and copies it.
+Why two parts: a mod can draw inside the conversation, but it is sealed off from the app's page around it (no access to the page, by design). The desktop app also has no setting for user styles, refuses to start with debugging switches, and its code is sealed (Electron's asar integrity check). So the whole-app part is a small script that you save once as a DevTools snippet and run after each app start. `/mod_tint css` copies it, with your saved colors filled in.
 
 ## Identity
 
@@ -27,6 +27,14 @@ What it looks for in the app's page (measured on Claude desktop 2.26454, October
 | The message box | `[data-cds="ChatComposer"]`, its text input `.bg-surface-3` |
 | Loading dots / Claude's mark | `[data-cds="WorkingMark"]` / `svg[data-cds="Spark"]` |
 | Colors | the app's `--cds-surface-*` and `--cds-clay` variables |
+| A repository's name and emoji | the sidebar: a thread row's heading is the nearest text above it outside any thread row; the emoji is the one its threads' titles start with |
+
+Where a repository's color comes from:
+
+1. **Saved colors** filled in by `/mod_tint css` (from `repos.json`), when the repository is there.
+2. Otherwise **learned from the page**: the emoji its threads start with (`🗂️1️⃣ …`), drawn on a canvas and measured the same way the mod measures it. A grey emoji gets a steady color made from the emoji itself. A heading counts only when all its emoji-titled threads share one emoji, so a date heading over several repositories is ignored.
+
+So a new repository needs no new copy of the script.
 
 How it draws:
 

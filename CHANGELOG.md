@@ -2,6 +2,14 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.1.0] - 2026-10-09
+
+### Added
+- **The desktop tint learns new repositories by itself.** It reads the repository names in the app's sidebar and the emoji their threads start with, and measures that emoji's color the same way the mod does. A new repository gets its color without copying the script again. Colors saved in `repos.json` still win when present.
+
+### Changed
+- **Save once, run in four keys.** `/mod_tint css` and the README now set the script up as a DevTools snippet named `tint`. After each app start: ⌥⌘I, ⌘P, `!tint`, Enter. The desktop app can't run it by itself: it refuses to start with debugging switches and its code is sealed.
+
 ## [1.0.2] - 2026-10-09
 
 ### Fixed

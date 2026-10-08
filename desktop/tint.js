@@ -1,7 +1,8 @@
 // window-tint for the Claude desktop app: colors the windows you work in.
 //
-// How to use: type /mod_tint css in Claude Code (it copies this script with your repo colors
-// filled in), open the desktop app's DevTools with ⌥⌘I, choose Console, paste, press Enter.
+// How to use: type /mod_tint css in Claude Code (it copies this script), open the desktop app's
+// DevTools with ⌥⌘I, choose Console, paste, press Enter. Better: save it once as a DevTools
+// snippet (Sources → Snippets) and after each app start run it with ⌥⌘I, ⌘P, !tint, Enter.
 // Run it again to turn it off. Reloading the app also removes it.
 //
 // What it does (display only; it sends nothing, stores nothing and changes no file):
@@ -17,8 +18,10 @@
 //   - windows of one repo get shades by their number (1️⃣ base, 2️⃣ deeper, 3️⃣ paler, ...);
 //   - light and dark mode.
 //
-// A window's color: its repo in REPOS (filled from ~/.claude/window-tint/repos.json by
-// /mod_tint css), else the emoji at the start of its title, measured by drawing it on a canvas.
+// A repo's color: REPOS (filled from ~/.claude/window-tint/repos.json by /mod_tint css) when it
+// is there, else learned from the page: the repo names in the sidebar and the emoji its threads'
+// titles start with, measured by drawing it on a canvas. So a new repo needs no new copy of this
+// script, and a saved DevTools snippet keeps working.
 //
 // Built against Claude desktop 2.26454 (October 2026), measured with desktop/scan.js:
 //   window = .epitaxy-chat-panel, its session = [data-session-id] inside it;
@@ -65,29 +68,46 @@
     const bright = Math.min(1.8, Math.max(0.4, l / CLAY[2])).toFixed(2)
     return `hue-rotate(${turn}deg) saturate(${sat}) brightness(${bright})`
   }
+  // An emoji's main color, measured the way the mod does (helpers/emoji-color.swift): draw it,
+  // keep the visible, colored, not-too-dark pixels, group them into 12 hues, average the biggest.
   const emojiCache = new Map()
   const emojiColor = emoji => {
     if (!emoji) return null
     if (emojiCache.has(emoji)) return emojiCache.get(emoji)
     const c = document.createElement('canvas')
-    c.width = c.height = 48
+    c.width = c.height = 64
     const g = c.getContext('2d', { willReadFrequently: true })
-    g.font = '40px "Apple Color Emoji", sans-serif'
-    g.textAlign = 'center'
-    g.textBaseline = 'middle'
-    g.fillText(emoji, 24, 27)
-    const px = g.getImageData(0, 0, 48, 48).data
-    let r = 0, gr = 0, b = 0, k = 0
-    for (let i = 0; i < px.length; i += 4) {
+    let px = null
+    try {
+      g.font = '52px "Apple Color Emoji", sans-serif'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText(emoji, 32, 35)
+      px = g.getImageData(0, 0, 64, 64).data
+    } catch { px = null }
+    const count = new Array(12).fill(0), sums = count.map(() => [0, 0, 0])
+    for (let i = 0; px && i < px.length; i += 4) {
       const [R, G, B, A] = [px[i], px[i + 1], px[i + 2], px[i + 3]]
       const max = Math.max(R, G, B), min = Math.min(R, G, B)
-      if (A < 128 || max < 60 || (max - min) / max < 0.3) continue   // skip outlines, greys, see-through
-      r += R; gr += G; b += B; k++
+      if (A < 128 || max < 51 || (max - min) / max < 0.25) continue   // see-through, too dark, grey
+      const k = Math.min(11, Math.floor(hsl(hex([R, G, B]))[0] / 30))
+      count[k]++; sums[k][0] += R; sums[k][1] += G; sums[k][2] += B
     }
-    const out = k < 20 ? null : hex([r / k, gr / k, b / k])
+    const best = count.indexOf(Math.max(...count))
+    const out = count[best] < 20 ? null : hex(sums[best].map(v => v / count[best]))
     emojiCache.set(emoji, out)
     return out
   }
+  // A grey or black-and-white emoji (⚽, 🗂️) has no color of its own: one is made from the
+  // emoji itself, so it is the same color every time.
+  const madeColor = emoji => {
+    let h = 0
+    for (const ch of emoji) h = (h * 31 + ch.codePointAt(0)) >>> 0
+    const hue = h % 360, s = 0.62, l = 0.48
+    const f = n => { const k = (n + hue / 30) % 12; return 255 * (l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1))) }
+    return hex([f(0), f(8), f(4)])
+  }
+  const colorOf = emoji => (emoji ? emojiColor(emoji) ?? madeColor(emoji) : null)
 
   // Finding things.
   const bare = text => text.replace(new RegExp(`^(?:${EMOJI}|\\s)+`, 'u'), '').trim()
@@ -111,6 +131,43 @@
     return titles.get(sid) ?? ''
   }
 
+  // Repos learned from the sidebar, so a new repo needs no new copy of this script:
+  // a thread row's heading is the nearest text above it that is not in a thread row, and the
+  // repo's emoji is the one its threads' titles start with ("🗂️1️⃣ Repo-fit check").
+  // A heading counts only when every emoji-titled thread under it shares one emoji, so a date
+  // or section heading over threads of several repos is never taken for a repo.
+  const headingOf = row => {
+    let group = row.parentElement
+    for (let i = 0; group && group !== document.body && i < 6; i++, group = group.parentElement) {
+      const above = leaves(group).filter(el =>
+        !el.closest('[data-row-key]') && !skip(el) && /[\p{L}\p{N}]/u.test(bare(el.textContent || '')) &&
+        (el.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING))
+      if (above.length) return bare(above[above.length - 1].textContent)
+    }
+    return null
+  }
+  const learn = () => {
+    const seen = new Map()   // heading -> emojis of its threads
+    const bySid = new Map()
+    for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
+      const name = headingOf(row)
+      if (!name || name.length > 80) continue
+      const sid = row.getAttribute('data-row-key').slice(5)
+      bySid.set(sid, name)
+      if (!seen.has(name)) seen.set(name, new Set())
+      const emoji = TITLE.exec(titleOf(sid))?.[1]
+      if (emoji) seen.get(name).add(emoji)
+    }
+    const learned = {}
+    for (const [name, emojis] of seen) {
+      if (emojis.size !== 1 || REPOS[name]) continue
+      const [emoji] = emojis
+      learned[name] = [colorOf(emoji), emoji]
+    }
+    return { learned, bySid }
+  }
+  let known = REPOS, repoOfSid = new Map()
+
   // Windows: each visible .epitaxy-chat-panel and the session it shows.
   const repoBySid = new Map()
   const findWindows = () => {
@@ -121,8 +178,9 @@
       if (!sid) continue
       const m = TITLE.exec(titleOf(sid))
       if (!repoBySid.get(sid)) repoBySid.set(sid, leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null)
-      const repo = repoBySid.get(sid)
-      const color = (repo && REPOS[repo][0]) || emojiColor(m?.[1])
+      const fromSidebar = repoOfSid.get(sid)
+      const repo = repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
+      const color = (repo && known[repo][0]) || colorOf(m?.[1])
       if (color) windows.set(panel, { color, n: Number(m?.[2] ?? m?.[3] ?? 1) || 1, sid })
     }
     return windows
@@ -217,7 +275,12 @@
     .replace(/^(\s*(?:[0-9]️?⃣|[1-9][0-9]))\s*│\s*/u, '$1 ')   // older "🟦🍉1️⃣ │ title"
   let focus = null, rows = 0
 
+  let learned = {}
   const paint = () => {
+    const sidebar = learn()
+    learned = sidebar.learned
+    known = { ...learned, ...REPOS }
+    repoOfSid = sidebar.bySid
     const windows = findWindows()
     const active = document.activeElement && [...windows.keys()].find(p => p.contains(document.activeElement))
     if (active) focus = active
@@ -295,7 +358,7 @@
     const labels = []
     for (const el of leaves(document.body)) {
       if (skip(el)) continue
-      const repo = REPOS[bare(el.textContent || '')]
+      const repo = known[bare(el.textContent || '')]
       if (!repo) continue
       set(el, 'color', readable(repo[0]))
       set(el, 'font-weight', '700')
@@ -317,7 +380,7 @@
         if (inside.length === 1) { heading = inside[0]; break }
         if (inside.length > 1) break
       }
-      const hoverColor = (heading && REPOS[bare(heading.textContent || '')]?.[0]) ?? emojiColor(TITLE.exec(title)?.[1])
+      const hoverColor = (heading && known[bare(heading.textContent || '')]?.[0]) ?? colorOf(TITLE.exec(title)?.[1])
       if (hoverColor) {
         row.setAttribute('data-wt-row', '')
         set(row, '--wt-hover', wash({ color: hoverColor, n: 1 }, 0.16, 1))
@@ -376,5 +439,7 @@
     },
   }
   const tinted = [...touched.keys()].filter(el => el.hasAttribute('data-wt-tint')).length
-  return `window-tint on · ${tinted} window(s) · ${rows} open thread(s) · ${shortened.size} title(s) shortened`
+  const names = Object.entries(learned).map(([name, [, emoji]]) => `${emoji} ${name}`)
+  return `window-tint on · ${tinted} window(s) · ${rows} open thread(s) · ${shortened.size} title(s) shortened` +
+    (names.length ? ` · learned from the sidebar: ${names.join(', ')}` : '')
 })()

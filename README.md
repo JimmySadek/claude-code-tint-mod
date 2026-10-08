@@ -2,7 +2,7 @@
   <img src="assets/images/banner.png" alt="claude-code-tint-mod: tell your Claude Code windows apart" width="100%">
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.0.2-46AD5B)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.0-46AD5B)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757)](https://code.claude.com/docs/en/plugins/mods/overview)
 
@@ -36,18 +36,25 @@ Then type `/mod_tint` to check. You should see the help.
 
 ## Color the whole desktop app (optional)
 
-A mod can draw inside the conversation, but not the app around it. For the full look (ring, tints, colored sidebar), you paste a small script into the desktop app once per app start.
+A mod can draw inside the conversation, but not the app around it. For the full look (ring, tints, colored sidebar), you save a small script in the desktop app's DevTools once. After that it takes four keys each time you start the app.
 
-**One time only: turn on Developer Mode.** In the Claude desktop app's menu bar: **Help → Troubleshooting → Enable Developer Mode…**, then confirm. This is what unlocks the app's DevTools (the inspector panel).
+> **Why not fully automatic?** The desktop app doesn't load outside scripts. It refuses to start with debugging switches and its code is sealed, which protects your signed-in account. A saved snippet is the safe way in.
 
-**Each time you start the app:**
+**Once: turn on Developer Mode.** In the Claude desktop app's menu bar: **Help → Troubleshooting → Enable Developer Mode…**, then confirm. This unlocks the app's DevTools (the inspector panel).
 
-1. In Claude Code, type `/mod_tint css`. The script is now on your clipboard, with your repositories' colors filled in.
-2. In the Claude desktop app, press **⌥⌘I** (Option + Command + I). A DevTools panel opens. Click the **Console** tab.
-3. Click next to the `>` at the bottom, press **⌘V** to paste, then **Enter**. The very first time, DevTools asks you to type `allow pasting` first.
-4. The console answers `window-tint on · …`. Done.
+**Once: save the script as a snippet.**
 
-> **Shortcut:** in DevTools, open **Sources → Snippets → + New snippet**, paste the script once and save it as `window-tint`. After each app start, right-click it and choose **Run**. Re-save it after you add a new repository, so it knows the new color.
+1. In Claude Code, type `/mod_tint css`. The script is now on your clipboard.
+2. In the Claude desktop app, press **⌥⌘I** (Option + Command + I). DevTools opens.
+3. Click **Sources**, then **Snippets** in its left panel (behind **»** if you don't see it).
+4. Click **+ New snippet**, name it `tint`, paste with **⌘V**, save with **⌘S**.
+5. Press **⌘↵** (Command + Return) to run it. The console answers `window-tint on · …`.
+
+**After each app start:** press **⌥⌘I**, then **⌘P**, type `!tint`, press **Enter**, then **⌥⌘I** to close DevTools.
+
+New repositories are picked up by themselves: the script reads the repository names in the sidebar and the emoji their threads start with. So the snippet stays as it is until the script itself changes (see [Update](#update)).
+
+> **Just trying it?** Skip the snippet: ⌥⌘I → **Console** → paste → **Enter**. The very first time, DevTools asks you to type `allow pasting` first.
 
 What you get:
 
@@ -68,7 +75,9 @@ What you get:
 | `/mod_tint` does nothing | Start a **new** session. Still nothing? Run `claude plugin list` in the Terminal and check that `tint@claude-code-tint-mod` says **enabled**. |
 | ⌥⌘I does nothing in the desktop app | Developer Mode is off: **Help → Troubleshooting → Enable Developer Mode…** |
 | The console refuses to paste | Type `allow pasting`, press Enter, then paste again. |
-| The tint looks doubled or stuck | Reload the app (in the console: `location.reload()`), then paste the script once. |
+| The tint looks doubled or stuck | Reload the app (in the console: `location.reload()`), then run the snippet once. |
+| A repository's name stays grey | Its threads have no emoji yet. Send a second message in one of its windows (the title gets its emoji then), or set a color with `/mod_tint color` and run `/mod_tint css` again. |
+| `!tint` finds nothing after ⌘P | Click inside DevTools first, so ⌘P goes to DevTools and not to the app. Still nothing? Check the snippet is still in **Sources → Snippets**. |
 | The tint stopped working after an app update | Type `/mod_tint css scan`, run it the same way, and [open an issue](../../issues/new/choose) with the report. The scan only reads. Details: [docs/how-it-works.md](docs/how-it-works.md). |
 
 ## Update
@@ -81,7 +90,7 @@ claude plugin marketplace update claude-code-tint-mod
 claude plugin update tint@claude-code-tint-mod
 ```
 
-Then start a new session. If the desktop script changed (see the [changelog](CHANGELOG.md)), run `/mod_tint css` again and paste it (and re-save your snippet). How versions work: [docs/releasing.md](docs/releasing.md).
+Then start a new session. If the desktop script changed (see the [changelog](CHANGELOG.md)), run `/mod_tint css` again and paste it over your `tint` snippet (select all, paste, ⌘S). How versions work: [docs/releasing.md](docs/releasing.md).
 
 ## Uninstall
 
@@ -118,7 +127,7 @@ Type `/mod_tint` any time to see this list.
 
 | Command | What it does |
 |---|---|
-| `/mod_tint css` | Copy the whole-app tint. In the app: ⌥⌘I → Console → paste → Enter. |
+| `/mod_tint css` | Copy the whole-app tint, with the steps to save it once as a DevTools snippet. |
 | `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |
 
 Choices are saved in `~/.claude/window-tint/repos.json`, shared by every window.

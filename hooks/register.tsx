@@ -123,8 +123,24 @@ const USAGE = [
   '',
   '| Command | What it does |',
   '|---|---|',
-  '| `/mod_tint css` | Copy the whole-app tint. In the app: ⌥⌘I → Console → paste → Enter. |',
+  '| `/mod_tint css` | Copy the whole-app tint, with the steps to save it once as a DevTools snippet. |',
   '| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |',
+].join('\n')
+
+// Shown after /mod_tint css. The app cannot load the script by itself (it refuses debugging
+// switches and its code is sealed), so it is saved once as a DevTools snippet.
+const DESKTOP_STEPS = [
+  '✅ **Desktop tint copied.**',
+  '',
+  '**Once: save it as a snippet** (in the desktop app)',
+  '1. Press **⌥⌘I**. DevTools opens.',
+  '2. Click **Sources**, then **Snippets** in its left panel (behind **»** if you don\'t see it).',
+  '3. Click **+ New snippet**, name it `tint`, paste, press **⌘S**. Press **⌘↵** to run it now.',
+  '',
+  '**After each app start:** **⌥⌘I**, **⌘P**, type `!tint`, **Enter**, then **⌥⌘I** to close.',
+  '',
+  'New repositories are picked up by themselves, so the snippet stays as it is. Run it again to turn it off.',
+  'Just trying? ⌥⌘I → **Console** → paste → **Enter**.',
 ].join('\n')
 
 function hash(text: string, seed: number): number {
@@ -764,7 +780,7 @@ export const register: Register = on => {
       return {
         text: isScan
           ? 'Layout scan copied (look-only). In the desktop app: ⌥⌘I, Console, paste, Enter; it copies a report to paste where you need it.'
-          : 'Desktop tint copied. In the desktop app: ⌥⌘I, Console, paste, Enter. Run it again to turn it off; reloading the app removes it too.',
+          : DESKTOP_STEPS,
       }
     }
     if (verb === 'name') {

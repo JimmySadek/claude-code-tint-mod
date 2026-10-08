@@ -59,6 +59,11 @@ test('desktop: /mod_tint css copies the tint with every repo\'s colors', async (
   expect(repos['old-repo'][0]).toBe('#14B8A6')
   expect(repos['no-color']).toBeUndefined()
 
+  // The help is Markdown tables (a command's answer is drawn as Markdown).
+  const help = await $.command.run({ command: 'mod_tint', args: '', ...AT_PROMPT })
+  expect(help.text).toContain('| Command | What it does |')
+  expect(help.text).toContain('| `/mod_tint css` |')
+
   // css scan: the scan as it is.
   await $.command.run({ command: 'mod_tint', args: 'css scan', ...AT_PROMPT })
   expect(copied).toBe(SCAN)

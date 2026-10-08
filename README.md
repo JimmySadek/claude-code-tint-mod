@@ -2,7 +2,7 @@
   <img src="assets/images/banner.png" alt="claude-code-tint-mod: tell your Claude Code windows apart" width="100%">
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.0.0-46AD5B)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.1-46AD5B)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757)](https://code.claude.com/docs/en/plugins/mods/overview)
 
@@ -19,60 +19,116 @@ A Claude Code mod (CC mod: a plugin that changes how Claude Code looks and behav
 | Your own messages | a border in the window's color, if you turn it on (`/mod_tint frame on`) |
 | **The whole desktop app** | with `/mod_tint css`, see below |
 
-## Install
+## Install (2 minutes)
 
-```
-/plugin marketplace add JimmySadek/claude-code-tint-mod
-/plugin install tint@claude-code-tint-mod
-/reload-plugins
-```
+You need [Claude Code](https://code.claude.com) **2.1.287 or newer**. Check with `claude --version` in the Terminal.
 
-## Update
+**Step 1 · Install.** Open the **Terminal** app, paste these two lines one at a time, and press Enter after each:
 
-```
-/plugin marketplace update claude-code-tint-mod
-/plugin update tint@claude-code-tint-mod
+```bash
+claude plugin marketplace add JimmySadek/claude-code-tint-mod
 ```
 
-Restart Claude Code afterwards. If the desktop tint changed (see the [changelog](CHANGELOG.md)), run `/mod_tint css` again and paste it into the app. How versions and releases work: [docs/releasing.md](docs/releasing.md).
+```bash
+claude plugin install tint@claude-code-tint-mod
+```
 
-## Color the whole desktop app
+You should see `✔ Successfully installed plugin: tint@claude-code-tint-mod`.
 
-A mod can draw inside the conversation, but not the app around it. For that, `/mod_tint css` copies a small script you paste into the desktop app's own DevTools console.
+> Prefer typing inside Claude Code? Use `/plugin marketplace add JimmySadek/claude-code-tint-mod`, then `/plugin install tint@claude-code-tint-mod`, then `/reload-plugins`.
 
-1. In Claude Code, type `/mod_tint css`. The script is copied, with your repositories' colors filled in.
-2. In the Claude desktop app, press **⌥⌘I** (Option, Command, I) to open DevTools, and choose **Console**.
-3. Paste and press Enter. The first time, the console may ask you to type `allow pasting`.
+**Step 2 · Start a new session.** Mods load when a session starts, so open a **new** Claude Code session (terminal or desktop app).
 
-What it does:
+**Step 3 · Check.** Type `/mod_tint`. You should see the help with three short tables. After your second message, the window title starts with an emoji and a number, like `🧪1️⃣`.
+
+That's it for the basics. ✅
+
+## Color the whole desktop app (optional)
+
+A mod can draw inside the conversation, but not the app around it. For the full look (ring, tints, colored sidebar), you paste a small script into the desktop app once per app start.
+
+**One time only: turn on Developer Mode.** In the Claude desktop app's menu bar: **Help → Troubleshooting → Enable Developer Mode…**, then confirm. This is what unlocks the app's DevTools (the inspector panel).
+
+**Each time you start the app:**
+
+1. In Claude Code, type `/mod_tint css`. The script is now on your clipboard, with your repositories' colors filled in.
+2. In the Claude desktop app, press **⌥⌘I** (Option + Command + I). A DevTools panel opens. Click the **Console** tab.
+3. Click next to the `>` at the bottom, press **⌘V** to paste, then **Enter**. The very first time, DevTools asks you to type `allow pasting` first.
+4. The console answers `window-tint on · …`. Done.
+
+> **Shortcut:** in DevTools, open **Sources → Snippets → + New snippet**, paste the script once and save it as `window-tint`. After each app start, right-click it and choose **Run**. Re-save it after you add a new repository, so it knows the new color.
+
+What you get:
 
 - **The window you are typing in:** a ring in its color just outside its edge, a soft tint on the conversation, and a colored text input.
 - **Other open windows:** a lighter tint and a thin ring in their own color.
-- **Sidebar:** stays neutral. Repo names are colored, with the repo's emoji in front. Threads show only their number (`3️⃣ Video mods`), in the sidebar and in each window's top bar. The thread of the focused window gets its color instead of the app's grey, and hovering a thread tints it in its repo's color.
+- **Sidebar:** stays neutral. Repository names are colored, with their emoji in front. Threads show only their number (`3️⃣ Video mods`), in the sidebar and in each window's top bar. The thread of the focused window gets its color instead of the app's grey, and hovering a thread tints it in its repository's color.
 - The loading dots and Claude's ✳ mark take each window's color.
 - Windows of the same repository get different shades by their number. Light and dark mode both work.
 
-To turn it off, run the script again. Reloading the app also removes it. To make re-running easy, save it once as a DevTools snippet (Sources, Snippets) and run it with one click after each app start.
+**To turn it off:** run the script again, or reload the app.
 
-**What it touches:** only how the open page looks. It sends nothing, stores nothing, changes no file and does not touch your sessions or their real titles. Shortened titles and colors are put back when you run it again.
+**What it touches:** only how the open page looks. It sends nothing, stores nothing, changes no file and does not touch your sessions or their real titles.
 
-**If an app update breaks it:** type `/mod_tint css scan`, run that script the same way, and compare its report with the selectors listed at the top of `desktop/tint.js`. The scan only reads. Details: [docs/how-it-works.md](docs/how-it-works.md). Please [open an issue](../../issues/new/choose) with the report.
+## Troubleshooting
+
+| You see | Do this |
+|---|---|
+| `/mod_tint` does nothing | Start a **new** session. Still nothing? Run `claude plugin list` in the Terminal and check that `tint@claude-code-tint-mod` says **enabled**. |
+| ⌥⌘I does nothing in the desktop app | Developer Mode is off: **Help → Troubleshooting → Enable Developer Mode…** |
+| The console refuses to paste | Type `allow pasting`, press Enter, then paste again. |
+| The tint looks doubled or stuck | Reload the app (in the console: `location.reload()`), then paste the script once. |
+| The tint stopped working after an app update | Type `/mod_tint css scan`, run it the same way, and [open an issue](../../issues/new/choose) with the report. The scan only reads. Details: [docs/how-it-works.md](docs/how-it-works.md). |
+
+## Update
+
+```bash
+claude plugin marketplace update claude-code-tint-mod
+```
+
+```bash
+claude plugin update tint@claude-code-tint-mod
+```
+
+Then start a new session. If the desktop script changed (see the [changelog](CHANGELOG.md)), run `/mod_tint css` again and paste it (and re-save your snippet). How versions work: [docs/releasing.md](docs/releasing.md).
+
+## Uninstall
+
+```bash
+claude plugin uninstall tint@claude-code-tint-mod
+```
+
+Your choices stay in `~/.claude/window-tint/`; delete that folder too if you want nothing left.
 
 ## Commands
 
-```
-/mod_tint                   help
-/mod_tint name Backend      name this window
-/mod_tint color #7C3AED     color for every window of this repo
-/mod_tint icon 🧪           emoji for every window of this repo
-/mod_tint repick            ask Claude for a new emoji
-/mod_tint frame on | off    border around your own messages (off at first)
-/mod_tint titles off | on   stop or restart Claude keeping the title on the main topic
-/mod_tint css               copy the desktop app tint
-/mod_tint css scan          copy the look-only layout scan
-/mod_tint off | on          hide or show the tint in this window
-/mod_tint reset             forget this repo's choices
-```
+Type `/mod_tint` any time to see this list.
+
+**This window**
+
+| Command | What it does |
+|---|---|
+| `/mod_tint name Backend` | Name this window. `/mod_tint name` alone clears it. |
+| `/mod_tint off` · `/mod_tint on` | Hide or show the tint in this window. |
+| `/mod_tint titles off` · `on` | Stop or restart Claude keeping the title on the main topic (desktop). |
+
+**Every window of this repository**
+
+| Command | What it does |
+|---|---|
+| `/mod_tint icon 🧪` | Choose the emoji. The color follows it unless you set one. |
+| `/mod_tint color #7C3AED` | Choose the color: a `#hex` or a color name (red, orange, yellow, lime, green, teal, cyan, blue, indigo, purple, pink, brown). `/mod_tint color` alone tries the next one. |
+| `/mod_tint repick` | Ask Claude for a new emoji; its color is measured again. |
+| `/mod_tint pattern waves` | Terminal strip pattern: triangles, circles, stripes, diamonds, waves, hexes, blocks, chevrons. |
+| `/mod_tint frame on` · `off` | A colored border around your own messages (off at first). |
+| `/mod_tint reset` | Forget this repository's choices; Claude picks again. |
+
+**Desktop app**
+
+| Command | What it does |
+|---|---|
+| `/mod_tint css` | Copy the whole-app tint. In the app: ⌥⌘I → Console → paste → Enter. |
+| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |
 
 Choices are saved in `~/.claude/window-tint/repos.json`, shared by every window.
 
@@ -87,7 +143,7 @@ Choices are saved in `~/.claude/window-tint/repos.json`, shared by every window.
 
 - Claude Code 2.1.287 or later (mods).
 - The emoji color is measured by a small Swift helper on macOS, compiled on first use. Elsewhere, Claude's own color choice is used.
-- The desktop app script was built against Claude desktop 2.26454 (October 2026). It needs the app's DevTools; on macOS the app reads `"allowDevTools": true` from `~/Library/Application Support/Claude/developer_settings.json`.
+- The desktop app script was built against Claude desktop 2.26454 (October 2026). It needs the app's DevTools: **Help → Troubleshooting → Enable Developer Mode…** (once).
 
 ## Check it
 

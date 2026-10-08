@@ -96,21 +96,35 @@ type Window = { repo: string; n: number; seen: number; ended?: boolean }
 // folders: other names the app shows for this repo (a clone or worktree folder), for /mod_tint css.
 type RepoChoice = { color?: string; icon?: string; pattern?: string; frame?: boolean; manualColor?: boolean; folders?: string[] }
 
+// The help, as Markdown (a command's answer is drawn as Markdown): three short tables.
 const USAGE = [
-  'Every window of a repository shares its emoji, chosen once by Claude, and a color taken from that emoji. Each window gets a number and its own shade.',
+  'Tell your windows apart: every repository has one emoji (picked once by Claude) and a color taken from it. Each window gets a number and its own shade.',
   '',
-  '/mod_tint name Backend     name this window (/mod_tint name alone clears it)',
-  '/mod_tint color #7C3AED    color for every window of this repo (#hex, or ' + NAMES.join(', ') + ')',
-  '/mod_tint color            next color for this repo',
-  '/mod_tint icon 🧪          emoji for every window of this repo (the color follows it unless you set one)',
-  '/mod_tint repick           ask Claude for a new emoji; its color is measured again',
-  '/mod_tint pattern waves    pattern for this repo (' + PATTERNS.join(', ') + ')',
-  '/mod_tint frame on | off   show or hide a colored border around your messages, for this repo (off at first)',
-  '/mod_tint titles off | on  stop or restart Claude keeping this window\'s title on its main topic (desktop)',
-  '/mod_tint off | on         hide or show the label, strip and border in this window',
-  '/mod_tint reset            forget this repo\'s choices, no window name; Claude picks again',
-  '/mod_tint css              copy the desktop app tint (every repo\'s color); paste it in the app: ⌥⌘I, Console, Enter',
-  '/mod_tint css scan         copy a look-only layout report, for when an app update breaks the tint',
+  '**This window**',
+  '',
+  '| Command | What it does |',
+  '|---|---|',
+  '| `/mod_tint name Backend` | Name this window. `/mod_tint name` alone clears it. |',
+  '| `/mod_tint off` · `/mod_tint on` | Hide or show the tint in this window. |',
+  '| `/mod_tint titles off` · `on` | Stop or restart Claude keeping the title on the main topic (desktop). |',
+  '',
+  '**Every window of this repository**',
+  '',
+  '| Command | What it does |',
+  '|---|---|',
+  '| `/mod_tint icon 🧪` | Choose the emoji. The color follows it unless you set one. |',
+  '| `/mod_tint color #7C3AED` | Choose the color: a `#hex` or ' + NAMES.join(', ') + '. `/mod_tint color` alone tries the next one. |',
+  '| `/mod_tint repick` | Ask Claude for a new emoji; its color is measured again. |',
+  '| `/mod_tint pattern waves` | Terminal strip pattern: ' + PATTERNS.join(', ') + '. |',
+  '| `/mod_tint frame on` · `off` | A colored border around your own messages (off at first). |',
+  '| `/mod_tint reset` | Forget this repository\'s choices; Claude picks again. |',
+  '',
+  '**Desktop app**',
+  '',
+  '| Command | What it does |',
+  '|---|---|',
+  '| `/mod_tint css` | Copy the whole-app tint. In the app: ⌥⌘I → Console → paste → Enter. |',
+  '| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |',
 ].join('\n')
 
 function hash(text: string, seed: number): number {

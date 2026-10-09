@@ -42,9 +42,9 @@ A mod can draw inside the conversation, but not the app around it. For the full 
 
 1. In Claude Code, type `/mod_tint desktop`. It tells you what will happen. Nothing changes yet.
 2. Type `/mod_tint desktop go`. **Terminal** opens and Claude quits for a few seconds. Terminal backs up the app's settings, saves the script as the DevTools snippet `tint`, turns on the app's **Developer Mode** if it is off, and opens Claude again.
-3. Press **⌥⌘I** (Option + Command + I). DevTools opens on **Snippets**. Right-click `tint` and choose **Run**. The console answers `window-tint on · …`.
+3. Turn on the colors: press **⌥⌘I** (Option + Command + I). A small tools window opens (the app's DevTools). In its list, right-click `tint` and choose **Run**. Close the tools window with **⌥⌘I** again.
 
-**After each app start:** **⌥⌘I** → right-click `tint` → **Run**. Press **⌥⌘I** again to close DevTools.
+**After each app start:** the same three clicks. Forgot them? Type `/mod_tint desktop`: once the tint is installed, it shows them in plain words. The tools window only changes the colors you see; nothing is sent and nothing is saved.
 
 New repositories are picked up by themselves: the script reads the repository names in the sidebar and the emoji their threads start with. When a mod update changes the script, Claude Code tells you once; run `/mod_tint desktop go` again.
 
@@ -140,7 +140,7 @@ Type `/mod_tint` any time to see this list.
 
 | Command | What it does |
 |---|---|
-| `/mod_tint desktop` | Install or update the whole-app tint: says what `/mod_tint desktop go` will do, then `go` does it. `line` copies the Terminal line instead. |
+| `/mod_tint desktop` | The whole-app colors: how to turn them on after an app start, or what `/mod_tint desktop go` will install or update. `line` copies the Terminal line instead. |
 | `/mod_tint css` | Copy the whole-app tint to paste by hand (a DevTools snippet or the Console). |
 | `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |
 

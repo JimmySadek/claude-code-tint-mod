@@ -147,6 +147,15 @@ test('desktop: /mod_tint desktop explains first; go runs the install in Terminal
   expect(go.text).toContain('Terminal is opening')
   expect(out.copied).toBeUndefined()
 
+  // Installed and current (repo colors aside): the plain-words card to turn the colors on.
+  files.set(`${APP}/Preferences`, prefsWith(files.get(`${DIR}/desktop-snippet.js`)!.replace('#259F3E', '#000000')))
+  const card = await $.command.run({ command: 'mod_tint', args: 'desktop', ...AT_PROMPT })
+  expect(card.text).toContain('Turn on the colors')
+  expect(card.text).toContain('right-click **tint**')
+  // Installed but older: the plan, as an update.
+  files.set(`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{}/*REPOS*/ // tint v0'))
+  expect((await $.command.run({ command: 'mod_tint', args: 'desktop', ...AT_PROMPT })).text).toContain('An update for the desktop colors is ready')
+
   // line: the same line, copied to run by hand.
   const line = await $.command.run({ command: 'mod_tint', args: 'desktop line', ...AT_PROMPT })
   expect(out.copied).toStartWith('/usr/bin/python3 \'')

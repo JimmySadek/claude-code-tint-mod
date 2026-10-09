@@ -133,15 +133,30 @@ const USAGE = [
   '',
   '| Command | What it does |',
   '|---|---|',
-  '| `/mod_tint desktop` | Install or update the whole-app tint: says what `/mod_tint desktop go` will do, then does it in one go. |',
+  '| `/mod_tint desktop` | The whole-app colors: how to turn them on, or what `/mod_tint desktop go` will install or update. |',
   '| `/mod_tint css` | Copy the whole-app tint to paste by hand (a DevTools snippet or the Console). |',
   '| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |',
 ].join('\n')
 
+// Shown by /mod_tint desktop once the tint is installed and current: how to turn it on after
+// an app start, in plain words (DevTools always opens as its own window in this app).
+const DESKTOP_RUN = [
+  '**Turn on the colors** (once after each start of the app):',
+  '',
+  '1. Press **⌥⌘I** (Option + Command + I). A small tools window opens.',
+  '2. In its list, right-click **tint** and choose **Run**. The colors appear.',
+  '3. Close the tools window: **⌥⌘I** again, or its red close button.',
+  '',
+  'This only changes the colors you see. Nothing is sent and nothing is saved.',
+  'Something wrong? `/mod_tint desktop go` installs it again.',
+].join('\n')
+
 // What /mod_tint desktop does, shown before anything happens; `/mod_tint desktop go` does it.
-function desktopPlan(isDevMode: boolean): string {
+function desktopPlan(isDevMode: boolean, isUpdate = false): string {
   return [
-    '**Color the whole desktop app.** `/mod_tint desktop go` does this in one go:',
+    isUpdate
+      ? '**An update for the desktop colors is ready.** `/mod_tint desktop go` installs it in one go:'
+      : '**Color the whole desktop app.** `/mod_tint desktop go` does this in one go:',
     '',
     '1. Opens **Terminal**, which quits Claude (so save anything you are typing).',
     '2. Saves a backup of the app\'s settings, then the tint as a DevTools snippet named `tint`.',
@@ -861,7 +876,11 @@ export const register: Register = on => {
       const how = rest.toLowerCase()
       if (how !== 'go' && how !== 'line') {
         const devMode = await readJson<{ allowDevTools?: boolean }>($, devSettings)
-        return { text: desktopPlan(devMode?.allowDevTools === true) }
+        const saved = await savedSnippet($)
+        const current = await tintScript($)
+        const plain = (text: string) => text.replace(REPOS_PART, '')
+        if (saved !== null && current !== null && devMode?.allowDevTools === true && plain(saved) === plain(current)) return { text: DESKTOP_RUN }
+        return { text: desktopPlan(devMode?.allowDevTools === true, saved !== null) }
       }
       const script = await tintScript($)
       if (script === null) return { text: `window-tint: could not read ${$.plugin.root}/desktop/tint.js.` }

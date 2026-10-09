@@ -7,6 +7,7 @@ All notable changes to this mod. Versions follow [semantic versioning](https://s
 ### Changed
 - **Install in one go, no pasting.** `/mod_tint desktop` now only says what will happen. `/mod_tint desktop go` opens Terminal and runs the install there (Claude quits and comes back). `/mod_tint desktop line` copies the Terminal line to run yourself, as before.
 - **Developer Mode included.** If it is off, the install turns it on, the same way the app's menu item does. The Developer Mode menu step is gone from the install.
+- **One command to remember.** Once the tint is installed and current, `/mod_tint desktop` shows how to turn the colors on after an app start, in plain words. (The app always opens DevTools as its own window, so it cannot be docked smaller.)
 
 ### Fixed
 - With Developer Mode off, the old answer put the Developer Mode step last, so it was easy to skip the Terminal line (found in a first-time-user test).

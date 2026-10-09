@@ -2,6 +2,14 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.7.0] - 2026-10-09
+
+### Added
+- **Colors you choose show in the whole desktop app right away.** The desktop script only knew each repo's emoji (it reads it from the sidebar and measures its color), and the color list saved with it never changed, so a chosen color (for example *make it lighter*) never reached the ring, the tint or the sidebar. Now tint draws a 1-pixel picture above the message box whose label holds every repo's chosen color, and the script reads it on each repaint. No reinstall when you change a color later. This needs the new desktop script once: the band offers **Update** (Claude closes and opens again).
+
+### Changed
+- **A much shorter README.** Install, color the app, and "just say it": `/mod_tint` plus your own words. The command table is gone from the README (`/mod_tint help` still lists it); the desktop details, privacy and uninstall are folded away.
+
 ## [1.6.1] - 2026-10-09
 
 ### Changed

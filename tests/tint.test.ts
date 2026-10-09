@@ -54,9 +54,13 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   const term = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
   expect(await term.find({ type: 'Text', text: /CLAUDE-MODS\s+2/ })).toBeDefined()
   await term.unmount()
-  // Desktop: no strip above the prompt, a badge by the mode labels, a strip on each message.
+  // Desktop: no strip above the prompt; only the 1-pixel picture whose label hands the
+  // desktop script every repo's chosen look, so a new color shows without a reinstall.
   const noBand = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await noBand.find({ type: 'Svg' })).toBeUndefined()
+  const tag = await noBand.find({ type: 'Svg' })
+  expect(tag?.props.width).toBe(1)
+  expect(tag?.props.height).toBe(1)
+  expect(String(tag?.props.alt)).toStartWith('tint-colors {')
   await noBand.unmount()
   // No strip on messages any more.
   const message = await $.ui.mount({
@@ -69,6 +73,13 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   await $.command.run({ command: 'mod_tint', args: 'name Backend', ...AT_PROMPT })
   await $.command.run({ command: 'mod_tint', args: 'color teal', ...AT_PROMPT })
   await $.command.run({ command: 'mod_tint', args: 'pattern waves', ...AT_PROMPT })
+  // The color just chosen is in the picture's label at once, under the repo's name and its
+  // folder's, so the saved desktop script shows it without being saved again.
+  const live = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  const label = JSON.parse(String((await live.find({ type: 'Svg' }))?.props.alt).slice('tint-colors '.length))
+  expect(label['claude-mods'][0]).toBe('#14B8A6')
+  expect(label['claude-mods-wt'][0]).toBe('#14B8A6')
+  await live.unmount()
   expect(JSON.parse(files.get(`${DIR}/repos.json`)!)['claude-mods'].pattern).toBe('waves')
   expect(JSON.parse(files.get(`${DIR}/repos.json`)!)['claude-mods'].color).toBe('teal')
 
@@ -138,4 +149,8 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   })
   expect(await hidden.find({ type: 'Svg' })).toBeUndefined()
   await hidden.unmount()
+  // Hidden: no picture above the prompt either.
+  const hiddenBand = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await hiddenBand.find({ type: 'Svg' })).toBeUndefined()
+  await hiddenBand.unmount()
 })

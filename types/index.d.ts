@@ -18,6 +18,7 @@ declare module 'claude-code' {
       remindSince: number | null
       newVersion: string | null
       showAutoHow: boolean
+      liveColors: string | null
     }
   }
 }

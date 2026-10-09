@@ -31,8 +31,9 @@ What it looks for in the app's page (measured on Claude desktop 2.26454, October
 
 Where a repository's color comes from:
 
-1. **Saved colors** filled in by `/mod_tint css` (from `repos.json`), when the repository is there.
-2. Otherwise **learned from the page**: the emoji its threads start with (`🗂️1️⃣ …`), drawn on a canvas and measured the same way the mod measures it. A grey emoji gets a steady color made from the emoji itself. Only repo headings count, never date headings like "Older".
+1. **Live colors:** the mod draws a 1-pixel picture above each desktop message box (an `Svg` in the `AbovePrompt` slot) whose label is `tint-colors {name: [color, emoji]}`, every repository's chosen look from `repos.json`. The script reads every such label on each repaint, so a color chosen later shows at once, with no reinstall.
+2. **Saved colors** filled in when the snippet was saved (from `repos.json`), when the repository is there.
+3. Otherwise **learned from the page**: the emoji its threads start with (`🗂️1️⃣ …`), drawn on a canvas and measured the same way the mod measures it. A grey emoji gets a steady color made from the emoji itself. Only repo headings count, never date headings like "Older".
 
 So a new repository needs no new copy of the script.
 

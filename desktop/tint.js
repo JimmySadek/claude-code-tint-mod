@@ -18,8 +18,8 @@
 //   - windows of one repo get shades by their number (1️⃣ base, 2️⃣ deeper, 3️⃣ paler, ...);
 //   - light and dark mode.
 //
-// A repo's color: REPOS (filled from ~/.claude/window-tint/repos.json by /mod_tint css) when it
-// is there, else learned from the page: the repo names in the sidebar and the emoji its threads'
+// A repo's color: the live label tint draws above each message box (see LIVE), else REPOS
+// (filled from ~/.claude/window-tint/repos.json when the snippet was saved), else learned from the page: the repo names in the sidebar and the emoji its threads'
 // titles start with, measured by drawing it on a canvas. So a new repo needs no new copy of this
 // script, and a saved DevTools snippet keeps working.
 //
@@ -35,6 +35,17 @@
   if (window.__windowTint) { window.__windowTint.off(); return 'window-tint off' }
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
+  // Live colors: tint draws a 1-pixel picture above each message box, labelled
+  // "tint-colors {name: [color, emoji]}" with every repo's chosen look, so a color chosen
+  // after this script was saved shows on the next repaint, without saving it again.
+  const LIVE = 'tint-colors '
+  const live = () => {
+    const out = {}
+    for (const el of document.querySelectorAll(`[alt^="${LIVE}"], [aria-label^="${LIVE}"]`)) {
+      try { Object.assign(out, JSON.parse((el.getAttribute('alt') || el.getAttribute('aria-label')).slice(LIVE.length))) } catch {}
+    }
+    return out
+  }
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
   const TITLE = new RegExp(`^(${EMOJI})?(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))\\s`, 'u')   // "🧪3️⃣ " or "3️⃣ "
@@ -281,7 +292,7 @@
   const paint = () => {
     const sidebar = learn()
     learned = sidebar.learned
-    known = { ...learned, ...REPOS }
+    known = { ...learned, ...REPOS, ...live() }
     repoOfSid = sidebar.bySid
     const windows = findWindows()
     const active = document.activeElement && [...windows.keys()].find(p => p.contains(document.activeElement))

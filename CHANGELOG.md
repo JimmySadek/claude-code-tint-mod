@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.7.1] - 2026-10-09
+
+### Fixed
+- **A new window gets its colors even with the sidebar hidden.** The desktop script learned each window's repo and emoji only from its row in the sidebar, so a window opened while the sidebar was hidden stayed uncolored (only its title changed). The 1-pixel label above each message box now also names the window's own repo and number, and the script reads it first.
+
 ## [1.7.0] - 2026-10-09
 
 ### Added

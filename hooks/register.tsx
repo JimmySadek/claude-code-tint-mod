@@ -111,9 +111,10 @@ const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
 const newVersion = atom({ plugin: 'tint', key: 'newVersion' } as const, null)
 // Set by the band's Turn on auto-update: the band then shows where to click.
 const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
-// Every repo's chosen [color, emoji] for desktop/tint.js, as the label of a 1-pixel picture
-// above the desktop prompt (LIVE_TAG). The saved snippet reads it on each repaint, so a color
-// chosen after the snippet was saved shows at once, with no reinstall.
+// For desktop/tint.js, the label of a 1-pixel picture above the desktop prompt (LIVE_TAG):
+// `{"repos": {name: [color, emoji]}, "window": [repo, number]}`, every repo's chosen look and
+// this window's own repo and number. The saved snippet reads it on each repaint, so a color
+// chosen later shows at once, and a window is known without the sidebar (hidden or not).
 const liveColors = atom({ plugin: 'tint', key: 'liveColors' } as const, null)
 const LIVE_TAG = 'tint-colors '
 const LIVE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
@@ -555,7 +556,7 @@ async function loadChoice($: EngineInterface, key: string): Promise<void> {
 async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const all = await readChoices($)
   const choice = all[key] ?? {}
-  const tag = LIVE_TAG + JSON.stringify(desktopRepos(all))
+  const tag = LIVE_TAG + JSON.stringify({ repos: desktopRepos(all), window: [key, (await read($, number)) ?? 1] })
   if ((await read($, liveColors)) !== tag) await update($, liveColors, () => tag)
   const wanted = {
     color: choice.color ?? autoColor(key),

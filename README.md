@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.7.0-46AD5B" alt="Version 1.7.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.7.1-46AD5B" alt="Version 1.7.1"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://code.claude.com/docs/en/plugins/mods/overview"><img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757" alt="Claude Code 2.1.287 or later"></a>
 </p>

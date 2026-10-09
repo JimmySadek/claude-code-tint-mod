@@ -35,16 +35,27 @@
   if (window.__windowTint) { window.__windowTint.off(); return 'window-tint off' }
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
-  // Live colors: tint draws a 1-pixel picture above each message box, labelled
-  // "tint-colors {name: [color, emoji]}" with every repo's chosen look, so a color chosen
-  // after this script was saved shows on the next repaint, without saving it again.
+  // Live labels: tint draws a 1-pixel picture above each message box, labelled
+  // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}': every repo's
+  // chosen look, so a color chosen after this script was saved shows on the next repaint, and
+  // the window's own repo and number, so a window is known even with the sidebar hidden.
+  // (tint 1.7.0 labels held the repos map alone.)
   const LIVE = 'tint-colors '
+  const LIVE_SEL = `[alt^="${LIVE}"], [aria-label^="${LIVE}"]`
+  const labelOf = el => {
+    try { return JSON.parse((el.getAttribute('alt') || el.getAttribute('aria-label')).slice(LIVE.length)) } catch { return null }
+  }
   const live = () => {
     const out = {}
-    for (const el of document.querySelectorAll(`[alt^="${LIVE}"], [aria-label^="${LIVE}"]`)) {
-      try { Object.assign(out, JSON.parse((el.getAttribute('alt') || el.getAttribute('aria-label')).slice(LIVE.length))) } catch {}
+    for (const el of document.querySelectorAll(LIVE_SEL)) {
+      const label = labelOf(el)
+      Object.assign(out, label?.repos ?? label ?? {})
     }
     return out
+  }
+  const ownOf = panel => {
+    const label = labelOf(panel.querySelector(LIVE_SEL) ?? document.createElement('i'))
+    return Array.isArray(label?.window) ? label.window : null
   }
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
@@ -192,9 +203,10 @@
       const m = TITLE.exec(titleOf(sid))
       if (!repoBySid.get(sid)) repoBySid.set(sid, leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null)
       const fromSidebar = repoOfSid.get(sid)
-      const repo = repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
+      const own = ownOf(panel)   // the window's own label: no sidebar needed
+      const repo = (own && known[own[0]] ? own[0] : null) ?? repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
-      if (color) windows.set(panel, { color, n: Number(m?.[2] ?? m?.[3] ?? 1) || 1, sid })
+      if (color) windows.set(panel, { color, n: Number(own?.[1] ?? m?.[2] ?? m?.[3] ?? 1) || 1, sid })
     }
     return windows
   }

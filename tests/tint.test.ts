@@ -61,6 +61,8 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   expect(tag?.props.width).toBe(1)
   expect(tag?.props.height).toBe(1)
   expect(String(tag?.props.alt)).toStartWith('tint-colors {')
+  // The window's own repo and number, so the desktop script knows it with the sidebar hidden.
+  expect(JSON.parse(String(tag?.props.alt).slice('tint-colors '.length)).window).toEqual(['claude-mods', 2])
   await noBand.unmount()
   // No strip on messages any more.
   const message = await $.ui.mount({
@@ -76,7 +78,7 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   // The color just chosen is in the picture's label at once, under the repo's name and its
   // folder's, so the saved desktop script shows it without being saved again.
   const live = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  const label = JSON.parse(String((await live.find({ type: 'Svg' }))?.props.alt).slice('tint-colors '.length))
+  const label = JSON.parse(String((await live.find({ type: 'Svg' }))?.props.alt).slice('tint-colors '.length)).repos
   expect(label['claude-mods'][0]).toBe('#14B8A6')
   expect(label['claude-mods-wt'][0]).toBe('#14B8A6')
   await live.unmount()

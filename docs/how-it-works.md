@@ -54,7 +54,7 @@ At the start of a desktop session the mod compares the saved snippet with its ow
 How it draws:
 
 - **Tints** set the app's own color variables inside each window, so the app keeps drawing everything itself.
-- **The ring** is a layer on the slot around the window, a few pixels outside the window's edge. The window is narrowed slightly so the gap is even on all sides.
+- **The ring** is a layer on the slot around the window, a few pixels outside the window's edge. The script never changes a box's size (an older width limit to even the gaps could keep a window stuck narrow), so the right gap can be a little smaller. Each repaint removes rings left on boxes that are no longer a window's slot.
 - **Loading dots** are drawn in a fixed orange that ignores color settings, so a CSS filter turns that orange into the window's color.
 - **Titles** are shortened on screen only (`🧪3️⃣ Title` shows as `3️⃣ Title`); the real session titles never change.
 - **Redraws** happen when the page changes, when you click into another window, and when a window changes size.

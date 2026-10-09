@@ -212,7 +212,8 @@
   }
   // The slot: the first box around a window that is larger than it (the app's tile frame).
   // The app leaves about 9px around a window on the left and top but only 1px on the right,
-  // so the boxes between window and slot get a width limit for even room on both sides.
+  // so the ring's right gap can be smaller. The script never changes a box's size: an earlier
+  // width limit to even the gaps could go stale after a resize and keep a window narrow.
   const slotOf = panel => {
     const p = panel.getBoundingClientRect()
     const chain = [panel]
@@ -312,10 +313,10 @@
     if (active) focus = active
     if (!windows.has(focus)) focus = [...windows.keys()][0] ?? null
     const seen = new Set()
-    // This paint's ring hosts and width-limited boxes. After a resize or a window opening or
-    // closing, a window's slot can be a different box: the old one must lose its ring and its
-    // width limit even when it is still in use for something else (else rings double up).
-    const rings = new Set(), limited = new Set()
+    // This paint's ring hosts. After a resize or a window opening or closing, a window's slot
+    // can be a different box: the old one must lose its ring even when it is still in use for
+    // something else (else rings double up).
+    const rings = new Set()
 
     for (const [panel, info] of windows) {
       sizes?.observe(panel)
@@ -332,21 +333,11 @@
       seen.add(panel)
 
       // The ring: a top layer (::after) on the slot, GAP px outside the window's edge.
-      const { host, room, chain, slot } = slotOf(panel)
+      const { host, room } = slotOf(panel)
       host.setAttribute('data-wt-ring', '')
       if (getComputedStyle(host).position === 'static') set(host, 'position', 'relative')
       sizes?.observe(host)
       if (room) {
-        const want = Math.max(GAP + 1, room.l)   // right room to match the left room
-        if (room.r < want - 0.5 || chain.some(el => touched.get(el)?.has('max-width'))) {
-          for (const el of chain) {
-            const width = Math.floor(slot.right - want - el.getBoundingClientRect().left)
-            if (width <= 200) continue
-            if (el.style.getPropertyValue('max-width') !== `${width}px`) { set(el, 'max-width', `${width}px`); soon() }
-            limited.add(el)
-            seen.add(el)
-          }
-        }
         for (const side of ['t', 'l', 'r', 'b']) set(host, `--wt-${side}`, `${Math.max(0, Math.round(room[side] - Math.min(GAP, room[side])))}px`)
         set(host, '--wt-radius', '16px')
       } else {
@@ -440,14 +431,11 @@
       seen.add(pill)
     }
 
-    // Rings and width limits left from an earlier layout go, even on boxes still in use.
+    // Rings left from an earlier layout go, even on boxes still in use.
     for (const el of document.querySelectorAll('[data-wt-ring]')) {
       if (rings.has(el)) continue
       el.removeAttribute('data-wt-ring')
       for (const prop of RING_PROPS) if (touched.get(el)?.has(prop)) unset(el, prop)   // only what this script set
-    }
-    for (const [el, props] of touched) {
-      if (props.has('max-width') && !limited.has(el)) { unset(el, 'max-width'); soon() }
     }
     for (const el of [...touched.keys()]) if (!seen.has(el)) clear(el)
   }

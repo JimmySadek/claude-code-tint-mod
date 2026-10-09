@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.7.4] - 2026-10-09
+
+### Fixed
+- **A window no longer gets stuck narrow.** To even the ring's gap on both sides, the desktop script set a width limit on the boxes around a window. After a resize, or a side browser or side chat opening and closing, that limit could go stale and keep the window from growing back. The script now never changes a box's size; it only paints. The ring's right gap can be a little smaller than the left. Needs the new desktop script once: the band offers **Update**.
+
 ## [1.7.3] - 2026-10-09
 
 ### Fixed

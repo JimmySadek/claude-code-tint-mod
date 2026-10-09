@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.6.1] - 2026-10-09
+
+### Changed
+- **A friendlier hint after `/mod_tint`.** The typeahead showed a long list of codes (`name <text> | color <#hex> | …`). It now says *say it your way*, with three examples, since Claude works out what you mean anyway.
+
+### Fixed
+- **The install's Terminal window closes by itself.** After **Color the app**, Terminal kept a finished window open with `[Process completed]`, which looked like something was still running or wrong. On success it now says *All done* and closes a few seconds later; on a problem it stays open with the message and says it is safe to close.
+- When Claude names or hides one window, its answer no longer says "Other windows of the repository follow"; that line is only for repo-wide changes (emoji, color, border, pattern, undo).
+
 ## [1.6.0] - 2026-10-09
 
 ### Changed

@@ -142,7 +142,10 @@ test('desktop: /mod_tint desktop explains first; go runs the install in Terminal
   expect(runner).toContain('/helpers/desktop-snippet.py\'')
   expect(runner).toContain(`--prefs '${APP}/Preferences'`)
   expect(runner).toContain(`--dev-mode '${APP}/developer_settings.json'`)
-  expect(runner).toContain('--restart\n')
+  expect(runner).toContain('--restart; then\n')
+  // On success the window closes itself; on a problem it stays and says it is safe to close.
+  expect(runner).toContain('close (every window whose name contains "install-desktop.command")')
+  expect(runner).toContain('You can close this window now.')
   expect(out.runs).toContainEqual(['chmod', '755', `${DIR}/install-desktop.command`])
   expect(out.runs).toContainEqual(['open', '-a', 'Terminal', `${DIR}/install-desktop.command`])
   expect(go.text).toContain('Terminal is opening')

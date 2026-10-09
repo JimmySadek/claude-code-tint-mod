@@ -272,7 +272,10 @@ test('the set tool applies what the person chose: emoji with its measured color,
   expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' } })
   expect(await title($, 'Work')).toBe('🧪1️⃣ Work')
 
-  await set({ name: 'Mods' })
+  // A name is this window's alone, so the answer does not talk about other windows.
+  const named = await set({ name: 'Mods' })
+  expect(String(named.result)).toBe('This window is named "Mods".')
+  expect(String(picked.result)).toContain('Other windows of the repository follow')
   expect(await title($, 'Work')).toBe('🧪1️⃣ Mods')
   await set({ name: '' })
   expect(await title($, 'Work')).toBe('🧪1️⃣ Work')

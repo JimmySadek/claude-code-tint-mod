@@ -69,7 +69,7 @@ Then turn on auto-update, so you get new versions and fixes by themselves: type 
 
 ### Step 2. Color the whole desktop app
 
-**Click once.** A band above the message box asks **"Color the whole app with your tint mod?"** Click **Color the app**. Claude closes and opens again by itself, which takes a few seconds.
+**Click once.** A band above the message box asks **"Color the whole app with your tint mod?"** Click **Color the app**. A Terminal window opens for a moment, Claude closes and opens again by itself, and the Terminal window closes when it is done. It all takes a few seconds.
 
 <p align="center">
   <img src="assets/images/desktop-install.png" alt="The tint band above the message box: Color the whole app with your tint mod? Click Color the app; Claude closes and opens again by itself. Buttons: Color the app, No thanks." width="100%">

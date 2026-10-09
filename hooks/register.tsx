@@ -197,7 +197,7 @@ function desktopPlan(isDevMode: boolean, isUpdate = false): string {
 // Shown after /mod_tint desktop go and /mod_tint desktop line.
 function desktopStarted(line: string | null, isOpened: boolean): string {
   if (isOpened) {
-    return '✅ **Terminal is opening** to install the tint. Claude quits and comes back in a few seconds.\n\nThen: **⌥⌘I** → right-click **tint** → **Run**. You can close the Terminal window.'
+    return '✅ **Terminal is opening** to install the tint. Claude quits and comes back in a few seconds.\n\nThen: **⌥⌘I** → right-click **tint** → **Run**. The Terminal window closes by itself when it is done.'
   }
   return [
     line === null
@@ -1019,9 +1019,22 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
     '--snippet', quote(`${dir}/${SNIPPET_FILE}`), '--backup', quote(`${dir}/${SNIPPET_BACKUP}`),
     '--dev-mode', quote(devSettings), '--restart'].join(' ')
   if (how === 'go') {
-    // A .command file opens in Terminal and runs there, in plain sight; it ends when done.
+    // A .command file opens in Terminal and runs there, in plain sight. Terminal keeps a
+    // finished window open ("[Process completed]"), which looks like something is still
+    // wrong, so on success the window closes itself a moment later; on a problem it stays
+    // with the message and says it is safe to close.
     const runner = `${dir}/${SNIPPET_RUNNER}`
-    await $.fs.write(runner, `#!/bin/sh\n# window-tint: saves the desktop tint snippet (from /mod_tint desktop go)\n${line}\n`)
+    await $.fs.write(runner, [
+      '#!/bin/sh',
+      '# window-tint: saves the desktop tint snippet (from /mod_tint desktop go)',
+      `if ${line}; then`,
+      "  echo 'window-tint: ✅ All done. This window closes by itself.'",
+      `  (sleep 3; osascript -e 'tell application "Terminal" to close (every window whose name contains "${SNIPPET_RUNNER}")') >/dev/null 2>&1 &`,
+      'else',
+      "  echo 'window-tint: You can close this window now.'",
+      'fi',
+      '',
+    ].join('\n'))
     const isReady = (await $.process.run(['chmod', '755', runner]).catch(() => null))?.exitCode === 0
     const opened = isReady ? await $.process.run(['open', '-a', 'Terminal', runner]).catch(() => null) : null
     if (opened?.exitCode === 0) return { text: desktopStarted(null, true), isOpened: true }
@@ -1034,8 +1047,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'mod_tint',
-      description: 'Emoji, color and number for this window, shared per repository',
-      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop [go|line] | css [scan] | update | off | on | reset',
+      description: 'This window\'s emoji, color and name. Say what you want in your own words.',
+      argumentHint: 'say it your way, e.g. "new emoji", "make it green", "go back"',
       immediate: true,
     })
     await $.tool.register({
@@ -1317,7 +1330,9 @@ export const register: Register = on => {
     }
     await refreshStatus($)
     if (done.length === 0) return { result: 'Nothing changed: give at least one field.' }
-    return { result: `${done.join(' ')} Other windows of the repository follow within 30 seconds.` }
+    // Only repo-wide changes reach the other windows; a name or hide is this window's alone.
+    const isShared = input.undo || icon !== undefined || asked !== undefined || input.frame !== undefined || input.pattern !== undefined
+    return { result: isShared ? `${done.join(' ')} Other windows of the repository follow within 30 seconds.` : done.join(' ') }
   })
 
   // Your own messages: the app draws its bubble, the mod adds a border in this

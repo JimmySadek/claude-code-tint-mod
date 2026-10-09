@@ -62,6 +62,7 @@ const SNIPPET_HELPER = 'helpers/desktop-snippet.py'
 const SNIPPET_FILE = 'desktop-snippet.js'
 const SNIPPET_BACKUP = 'Preferences.backup'
 const SNIPPET_STATE = 'desktop.json'
+const SNIPPET_RUNNER = 'install-desktop.command'   // opened in Terminal by /mod_tint desktop go
 const REPOS_PART = /\/\*REPOS\*\/[\s\S]*?\/\*REPOS\*\//
 const PATTERNS = ['triangles', 'circles', 'stripes', 'diamonds', 'waves', 'hexes', 'blocks', 'chevrons'] as const
 type Pattern = (typeof PATTERNS)[number]
@@ -132,24 +133,39 @@ const USAGE = [
   '',
   '| Command | What it does |',
   '|---|---|',
-  '| `/mod_tint desktop` | Install or update the whole-app tint: copies one Terminal line that saves it in the app for you. |',
+  '| `/mod_tint desktop` | Install or update the whole-app tint: says what `/mod_tint desktop go` will do, then does it in one go. |',
   '| `/mod_tint css` | Copy the whole-app tint to paste by hand (a DevTools snippet or the Console). |',
   '| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |',
 ].join('\n')
 
-// Shown after /mod_tint desktop. `line` is shown when it could not be copied.
-function desktopSteps(line: string | null, isDevMode: boolean): string {
+// What /mod_tint desktop does, shown before anything happens; `/mod_tint desktop go` does it.
+function desktopPlan(isDevMode: boolean): string {
+  return [
+    '**Color the whole desktop app.** `/mod_tint desktop go` does this in one go:',
+    '',
+    '1. Opens **Terminal**, which quits Claude (so save anything you are typing).',
+    '2. Saves a backup of the app\'s settings, then the tint as a DevTools snippet named `tint`.',
+    ...(isDevMode ? [] : ['3. Turns on **Developer Mode** (the same as Help → Troubleshooting → Enable Developer Mode…), so ⌥⌘I opens DevTools.']),
+    `${isDevMode ? 3 : 4}. Opens Claude again. This window is still there.`,
+    '',
+    'Then: **⌥⌘I** → right-click **tint** → **Run**. After each app start, the same.',
+    '',
+    'Type `/mod_tint desktop go` to start. Rather run it yourself? `/mod_tint desktop line` copies the Terminal line.',
+  ].join('\n')
+}
+
+// Shown after /mod_tint desktop go and /mod_tint desktop line.
+function desktopStarted(line: string | null, isOpened: boolean): string {
+  if (isOpened) {
+    return '✅ **Terminal is opening** to install the tint. Claude quits and comes back in a few seconds.\n\nThen: **⌥⌘I** → right-click **tint** → **Run**. You can close the Terminal window.'
+  }
   return [
     line === null
-      ? '✅ **One Terminal line copied.** It quits Claude, saves the tint in the app as a DevTools snippet (a backup of the app\'s settings first), and opens Claude again.'
-      : 'Run this line in **Terminal**. It quits Claude, saves the tint in the app as a DevTools snippet (a backup of the app\'s settings first), and opens Claude again.\n\n```\n' + line + '\n```',
+      ? '✅ **One Terminal line copied.** It quits Claude, saves the tint as a DevTools snippet (a backup of the app\'s settings first), turns on Developer Mode if needed, and opens Claude again.'
+      : 'Run this line in **Terminal**. It quits Claude, saves the tint as a DevTools snippet (a backup of the app\'s settings first), turns on Developer Mode if needed, and opens Claude again.\n\n```\n' + line + '\n```',
     '',
-    ...(line === null ? ['1. Open **Terminal** (⌘Space, type `Terminal`, Enter).', '2. Paste with **⌘V**, press **Enter**.'] : ['1. Open **Terminal** and run the line above.']),
-    '3. When Claude is back: **⌥⌘I**, right-click **tint**, choose **Run**.',
-    '',
-    '**After each app start:** **⌥⌘I** → right-click **tint** → **Run**.',
-    'This window closes with the app and is still there when Claude opens.',
-    ...(isDevMode ? [] : ['', '⚠️ **Developer Mode is off**, so ⌥⌘I does nothing yet. Turn it on first: **Help → Troubleshooting → Enable Developer Mode…**']),
+    line === null ? '1. Open **Terminal** (⌘Space, type `Terminal`, Enter), paste with **⌘V**, press **Enter**.' : '1. Open **Terminal** and run the line above.',
+    '2. When Claude is back: **⌥⌘I** → right-click **tint** → **Run**.',
   ].join('\n')
 }
 
@@ -373,7 +389,7 @@ async function desktopNotice($: EngineInterface): Promise<void> {
   const statePath = `${await folder($)}/${SNIPPET_STATE}`
   if ((await readJson<{ notified?: string }>($, statePath))?.notified === mark) return
   await $.fs.write(statePath, JSON.stringify({ notified: mark }))
-  $.ui.toast('window-tint: the desktop tint has an update. /mod_tint desktop installs it.')
+  $.ui.toast('window-tint: the desktop tint has an update. /mod_tint desktop go installs it.')
 }
 
 async function readChoices($: EngineInterface): Promise<Record<string, RepoChoice>> {
@@ -713,7 +729,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'mod_tint',
       description: 'Emoji, color and number for this window, shared per repository',
-      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop | css [scan] | off | on | reset',
+      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop [go|line] | css [scan] | off | on | reset',
       immediate: true,
     })
 
@@ -838,8 +854,14 @@ export const register: Register = on => {
     if (verb === 'desktop') {
       const home = (await $.env.get('HOME')) ?? ''
       const prefs = `${home}/${APP_SUPPORT}/Preferences`
+      const devSettings = `${home}/${APP_SUPPORT}/developer_settings.json`
       if ((await $.fs.read(prefs).catch(() => null)) === null) {
         return { text: 'The Claude desktop app\'s settings were not found on this computer (it works on macOS). `/mod_tint css` copies the script to paste by hand.' }
+      }
+      const how = rest.toLowerCase()
+      if (how !== 'go' && how !== 'line') {
+        const devMode = await readJson<{ allowDevTools?: boolean }>($, devSettings)
+        return { text: desktopPlan(devMode?.allowDevTools === true) }
       }
       const script = await tintScript($)
       if (script === null) return { text: `window-tint: could not read ${$.plugin.root}/desktop/tint.js.` }
@@ -848,10 +870,18 @@ export const register: Register = on => {
       await $.fs.write(`${dir}/${SNIPPET_FILE}`, script)
       const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
       const line = ['/usr/bin/python3', quote(`${$.plugin.root}/${SNIPPET_HELPER}`), '--prefs', quote(prefs),
-        '--snippet', quote(`${dir}/${SNIPPET_FILE}`), '--backup', quote(`${dir}/${SNIPPET_BACKUP}`), '--restart'].join(' ')
+        '--snippet', quote(`${dir}/${SNIPPET_FILE}`), '--backup', quote(`${dir}/${SNIPPET_BACKUP}`),
+        '--dev-mode', quote(devSettings), '--restart'].join(' ')
+      if (how === 'go') {
+        // A .command file opens in Terminal and runs there, in plain sight; it ends when done.
+        const runner = `${dir}/${SNIPPET_RUNNER}`
+        await $.fs.write(runner, `#!/bin/sh\n# window-tint: saves the desktop tint snippet (from /mod_tint desktop go)\n${line}\n`)
+        const isReady = (await $.process.run(['chmod', '755', runner]).catch(() => null))?.exitCode === 0
+        const opened = isReady ? await $.process.run(['open', '-a', 'Terminal', runner]).catch(() => null) : null
+        if (opened?.exitCode === 0) return { text: desktopStarted(null, true) }
+      }
       const copied = await $.ui.copy({ text: line })
-      const devMode = await readJson<{ allowDevTools?: boolean }>($, `${home}/${APP_SUPPORT}/developer_settings.json`)
-      return { text: desktopSteps(copied.isCopied ? null : line, devMode?.allowDevTools === true) }
+      return { text: desktopStarted(copied.isCopied ? null : line, false) }
     }
     if (verb === 'css') {
       const isScan = rest.toLowerCase() === 'scan'

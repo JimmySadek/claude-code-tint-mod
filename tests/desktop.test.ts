@@ -77,7 +77,7 @@ const prefsWith = (snippet?: string) => JSON.stringify({
   } } },
 })
 
-function desktopWorld(on: Parameters<Parameters<typeof test>[1]>[1], files: Map<string, string>) {
+function desktopWorld(on: Parameters<Parameters<typeof test>[1]>[1], files: Map<string, string>, openFails = false) {
   const out = { copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][] }
   mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
@@ -98,7 +98,7 @@ function desktopWorld(on: Parameters<Parameters<typeof test>[1]>[1], files: Map<
   on('model.complete', () => ({ deny: 'offline' }))
   on('process.run', ($, e) => {
     out.runs.push([...e.argv])
-    return { value: { exitCode: 0, stdout: '', stderr: '' } } as never
+    return { value: { exitCode: openFails && e.argv[0] === 'open' ? 1 : 0, stdout: '', stderr: '' } } as never
   })
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
   on('ui.status', () => ({ value: undefined }))
@@ -115,32 +115,53 @@ function desktopWorld(on: Parameters<Parameters<typeof test>[1]>[1], files: Map<
   return out
 }
 
-test('desktop: /mod_tint desktop copies one Terminal line that saves the tint in the app', async ($, on) => {
+test('desktop: /mod_tint desktop explains first; go runs the install in Terminal; line copies it', async ($, on) => {
   const files = new Map<string, string>([
     [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
     [`${APP}/Preferences`, prefsWith()],
-    [`${APP}/developer_settings.json`, JSON.stringify({ allowDevTools: true })],
   ])
   const out = desktopWorld(on, files)
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
 
-  const answer = await $.command.run({ command: 'mod_tint', args: 'desktop', ...AT_PROMPT })
-  // The script it installs has the repo colors filled in, between the marks.
-  expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('/*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/')
-  // One line: the helper, every path quoted (the app folder has a space), and --restart.
-  expect(out.copied).toStartWith('/usr/bin/python3 \'')
-  expect(out.copied).toContain('/helpers/desktop-snippet.py\'')
-  expect(out.copied).toContain(`--prefs '${APP}/Preferences'`)
-  expect(out.copied).toContain(`--snippet '${DIR}/desktop-snippet.js'`)
-  expect(out.copied).toContain(`--backup '${DIR}/Preferences.backup'`)
-  expect(out.copied).toEndWith('--restart')
-  expect(answer.text).toContain('One Terminal line copied')
-  expect(answer.text).not.toContain('Developer Mode is off')
+  // Alone: nothing happens yet; it says what go will do, Developer Mode included when it is off.
+  const plan = await $.command.run({ command: 'mod_tint', args: 'desktop', ...AT_PROMPT })
+  expect(plan.text).toContain('/mod_tint desktop go')
+  expect(plan.text).toContain('Developer Mode')
+  expect(out.runs.some(argv => argv[0] === 'open')).toBe(false)
+  expect(files.has(`${DIR}/desktop-snippet.js`)).toBe(false)
+  files.set(`${APP}/developer_settings.json`, JSON.stringify({ allowDevTools: true }))
+  expect((await $.command.run({ command: 'mod_tint', args: 'desktop', ...AT_PROMPT })).text).not.toContain('Developer Mode')
 
-  // Developer Mode off: the answer says how to turn it on.
-  files.delete(`${APP}/developer_settings.json`)
-  const off = await $.command.run({ command: 'mod_tint', args: 'desktop', ...AT_PROMPT })
-  expect(off.text).toContain('Developer Mode is off')
+  // go: the script with repo colors, and a .command file Terminal opens and runs.
+  const go = await $.command.run({ command: 'mod_tint', args: 'desktop go', ...AT_PROMPT })
+  expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('/*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/')
+  const runner = files.get(`${DIR}/install-desktop.command`)!
+  expect(runner).toStartWith('#!/bin/sh\n')
+  expect(runner).toContain('/usr/bin/python3 \'')
+  expect(runner).toContain('/helpers/desktop-snippet.py\'')
+  expect(runner).toContain(`--prefs '${APP}/Preferences'`)
+  expect(runner).toContain(`--dev-mode '${APP}/developer_settings.json'`)
+  expect(runner).toContain('--restart\n')
+  expect(out.runs).toContainEqual(['chmod', '755', `${DIR}/install-desktop.command`])
+  expect(out.runs).toContainEqual(['open', '-a', 'Terminal', `${DIR}/install-desktop.command`])
+  expect(go.text).toContain('Terminal is opening')
+  expect(out.copied).toBeUndefined()
+
+  // line: the same line, copied to run by hand.
+  const line = await $.command.run({ command: 'mod_tint', args: 'desktop line', ...AT_PROMPT })
+  expect(out.copied).toStartWith('/usr/bin/python3 \'')
+  expect(out.copied).toEndWith('--restart')
+  expect(runner).toContain(out.copied!)
+  expect(line.text).toContain('One Terminal line copied')
+})
+
+test('desktop: when Terminal cannot be opened, go falls back to copying the line', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith()]])
+  const out = desktopWorld(on, files, true)
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
+  const go = await $.command.run({ command: 'mod_tint', args: 'desktop go', ...AT_PROMPT })
+  expect(go.text).toContain('One Terminal line copied')
+  expect(out.copied).toContain('--dev-mode')
 })
 
 test('desktop: no desktop app here, so /mod_tint desktop says so and changes nothing', async ($, on) => {
@@ -168,5 +189,5 @@ test('desktop: an older saved snippet is announced once; repo colors alone never
   files.set(`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{}/*REPOS*/ // tint v0'))
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
-  expect(out.toasts.filter(t => t.includes('desktop tint'))).toEqual(['window-tint: the desktop tint has an update. /mod_tint desktop installs it.'])
+  expect(out.toasts.filter(t => t.includes('desktop tint'))).toEqual(['window-tint: the desktop tint has an update. /mod_tint desktop go installs it.'])
 })

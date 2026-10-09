@@ -5,9 +5,12 @@ You run it yourself, from the Terminal line that /mod_tint desktop copies. The a
 DevTools snippets in its Preferences file and rewrites that file while it runs, so this
 quits the app first (as the app's own Quit would), saves, and opens the app again.
 It saves a copy of Preferences first, then changes only DevTools settings: the snippet
-"tint", and DevTools opening on Sources -> Snippets. Then it exits; nothing keeps running.
+"tint", and DevTools opening on Sources -> Snippets. With --dev-mode it also turns on the
+app's Developer Mode (what Help -> Troubleshooting -> Enable Developer Mode... writes), so
+DevTools opens with Option-Command-I. Then it exits; nothing keeps running.
 
-Usage: desktop-snippet.py --prefs <Preferences> --snippet <tint.js> --backup <file> [--restart]
+Usage: desktop-snippet.py --prefs <Preferences> --snippet <tint.js> --backup <file>
+                          [--dev-mode <developer_settings.json>] [--restart]
 """
 import argparse
 import json
@@ -65,11 +68,36 @@ def save(prefs, snippet, backup):
     os.replace(temporary, prefs)
 
 
+def write_json(path, data, mode):
+    temporary = path + '.tint-tmp'
+    with open(temporary, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write('\n')
+    os.chmod(temporary, mode)
+    with open(temporary, encoding='utf-8') as f:
+        json.load(f)   # never swap in a file the app could not read
+    os.replace(temporary, path)
+
+
+def dev_mode_on(path):
+    """Turns on Developer Mode the way the app's own menu item does. Returns True when it changed."""
+    data = {}
+    if os.path.isfile(path):
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+    if data.get('allowDevTools') is True:
+        return False
+    data['allowDevTools'] = True
+    write_json(path, data, os.stat(path).st_mode & 0o777 if os.path.isfile(path) else 0o600)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--prefs', required=True)
     parser.add_argument('--snippet', required=True)
     parser.add_argument('--backup', required=True)
+    parser.add_argument('--dev-mode', help='developer_settings.json: turn on Developer Mode too')
     parser.add_argument('--restart', action='store_true', help='quit the app first and open it again after')
     args = parser.parse_args()
     if not os.path.isfile(args.prefs):
@@ -86,6 +114,12 @@ def main():
     try:
         save(args.prefs, args.snippet, args.backup)
         print('window-tint: ✅ snippet "tint" saved (backup: ' + args.backup + ').')
+        if args.dev_mode:
+            try:
+                if dev_mode_on(args.dev_mode):
+                    print('window-tint: ✅ Developer Mode turned on.')
+            except Exception as error:
+                print(f'window-tint: Developer Mode not changed ({error}). Turn it on in the app: Help -> Troubleshooting -> Enable Developer Mode...')
         return 0
     except Exception as error:
         if os.path.exists(args.prefs + '.tint-tmp'):

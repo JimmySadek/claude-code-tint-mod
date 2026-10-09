@@ -49,7 +49,7 @@ test('ended windows older than a day are deleted; recent and open ones stay', as
   await $.session.start({ cwd: '/work/claude-mods', surface: 'desktop', isInteractive: false })
   await clock.settle()
 
-  expect(runs).toEqual([['rm', '-f', `${DIR}/windows/ended-old.json`]])
+  expect(runs.filter(argv => argv[0] === 'rm')).toEqual([['rm', '-f', `${DIR}/windows/ended-old.json`]])
   expect(files.has(`${DIR}/windows/ended-old.json`)).toBe(false)
   expect(files.has(`${DIR}/windows/ended-recent.json`)).toBe(true)
   expect(files.has(`${DIR}/windows/open-old.json`)).toBe(true)

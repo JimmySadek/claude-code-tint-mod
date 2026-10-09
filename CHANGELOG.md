@@ -2,6 +2,16 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.5.0] - 2026-10-09
+
+### Added
+- **Know when a new version is out.** A marketplace someone adds never auto-updates unless they turn it on, and its owner can't do it for them. So once a day tint asks GitHub for its newest version (one small request). When it is newer and auto-update is off, the band ends with **✨ New version x.y.z** and two buttons: **Update now** and **Enable auto-update**. In the desktop app it rides along with the 2-step reminder and closes with it; on its own it counts down 60 seconds too, and comes back next session until you update.
+- **`/mod_tint update`**: the same as `claude plugin update tint@claude-code-tint-mod`; then type `/reload-plugins`.
+- **Enable auto-update** copies `/plugin` and shows the 3 steps (paste, **Marketplaces**, **claude-code-tint-mod** → **Enable auto-update**), pausing the countdown until **Done**. tint never changes your settings itself.
+
+### Changed
+- **README rewritten:** a 3-step "Get started" with a picture of the band and what to expect after every app start, a "Stay up to date" section with pictures, one commands table, and the details folded away.
+
 ## [1.4.0] - 2026-10-09
 
 ### Added

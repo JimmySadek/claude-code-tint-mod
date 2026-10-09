@@ -107,6 +107,10 @@ const desktopOffer = atom({ plugin: 'tint', key: 'desktopOffer' } as const, null
 const glow = atom({ plugin: 'tint', key: 'glow' } as const, 0)
 // When this window first showed the turn-on reminder (clock ms), for its countdown.
 const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
+// A newer tint release than the one running, when auto-update is off; null shows nothing.
+const newVersion = atom({ plugin: 'tint', key: 'newVersion' } as const, null)
+// Set by the band's Turn on auto-update: the band then shows where to click.
+const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
 
 type Window = { repo: string; n: number; seen: number; ended?: boolean }
 // manualColor: set by /mod_tint color, so a new emoji does not replace it.
@@ -143,6 +147,12 @@ const USAGE = [
   '| `/mod_tint desktop` | The whole-app colors: how to turn them on, or what `/mod_tint desktop go` will install or update. |',
   '| `/mod_tint css` | Copy the whole-app tint to paste by hand (a DevTools snippet or the Console). |',
   '| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |',
+  '',
+  '**tint itself**',
+  '',
+  '| Command | What it does |',
+  '|---|---|',
+  '| `/mod_tint update` | Get the newest tint, then `/reload-plugins`. Or turn on auto-update once: `/plugin` → Marketplaces → claude-code-tint-mod → Enable auto-update. |',
 ].join('\n')
 
 // Shown by /mod_tint desktop once the tint is installed and current: how to turn it on after
@@ -440,7 +450,7 @@ async function refreshOffer($: EngineInterface): Promise<void> {
     offer = started !== null && state.doneFor !== started ? 'remind' : null
   }
   await update($, desktopOffer, () => offer)
-  if (offer !== 'remind') {
+  if (offer !== 'remind' && (await read($, newVersion)) === null) {
     remindDrawn = false
     await update($, remindSince, () => null)
   }
@@ -450,9 +460,17 @@ async function refreshOffer($: EngineInterface): Promise<void> {
 let remindDrawn = false
 
 // Done, or the reminder's countdown running out: away in every window until the app starts again.
+// The update line rode along in the same band, so it goes too (it comes back next session).
 async function remindDone($: EngineInterface): Promise<void> {
   await saveDesktopState($, { doneFor: (await appStarted($)) ?? undefined })
   await update($, desktopOffer, () => null)
+  await bandDone($)
+}
+
+// The band's countdown ran out (or the reminder closed): the band and its timer go.
+async function bandDone($: EngineInterface): Promise<void> {
+  await update($, newVersion, () => null)
+  await update($, showAutoHow, () => false)
   await update($, remindSince, () => null)
   remindDrawn = false
 }
@@ -809,6 +827,81 @@ function glowColor(base: string, step: number): string {
   return '#' + a.map((v, i) => Math.round(v + (b[i]! - v) * t).toString(16).padStart(2, '0')).join('').toUpperCase()
 }
 
+// Updates. A marketplace someone adds (like tint's) never auto-updates unless they turn it
+// on, and its owner cannot (marketplace.json has no field for it). So, once a day, the mod
+// asks GitHub for the newest release; when it is newer than this one and auto-update is off,
+// the band says so, with the update command to copy and how to turn auto-update on.
+const MARKETPLACE = 'claude-code-tint-mod'
+const UPDATE_COMMAND = `/plugin update tint@${MARKETPLACE}`
+const RELEASES_API = 'https://api.github.com/repos/JimmySadek/claude-code-tint-mod/releases/latest'
+const UPDATE_STATE = 'update.json'
+const CHECK_MS = 24 * 60 * 60 * 1000
+type UpdateState = { checkedAt?: number; latest?: string; later?: string }
+
+const isNewer = (a: string, b: string) => {
+  const [x, y] = [a, b].map(v => v.split('.').map(n => Number.parseInt(n, 10) || 0))
+  for (let i = 0; i < 3; i++) if ((x![i] ?? 0) !== (y![i] ?? 0)) return (x![i] ?? 0) > (y![i] ?? 0)
+  return false
+}
+
+async function ownVersion($: EngineInterface): Promise<string | null> {
+  return (await readJson<{ version?: string }>($, `${$.plugin.root}/.claude-plugin/plugin.json`))?.version ?? null
+}
+
+// Read only: whether the person turned on auto-update for tint's marketplace.
+async function autoUpdateOn($: EngineInterface): Promise<boolean> {
+  const home = (await $.env.get('HOME')) ?? ''
+  type Known = Record<string, { autoUpdate?: boolean }>
+  const settings = await readJson<{ extraKnownMarketplaces?: Known }>($, `${home}/.claude/settings.json`)
+  const fromSettings = settings?.extraKnownMarketplaces?.[MARKETPLACE]?.autoUpdate
+  if (typeof fromSettings === 'boolean') return fromSettings
+  return (await readJson<Known>($, `${home}/.claude/plugins/known_marketplaces.json`))?.[MARKETPLACE]?.autoUpdate === true
+}
+
+async function checkUpdate($: EngineInterface): Promise<void> {
+  const path = `${await folder($)}/${UPDATE_STATE}`
+  const state = (await readJson<UpdateState>($, path)) ?? {}
+  const now = await $.clock.now()
+  let latest = state.latest
+  if (state.checkedAt === undefined || now - state.checkedAt >= CHECK_MS) {
+    const reply = await $.http.fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' } }).catch(() => null)
+    const tag = reply?.ok ? (JSON.parse(reply.text) as { tag_name?: string }).tag_name : undefined
+    if (tag) latest = tag.replace(/^v/, '')
+    await $.process.run(['mkdir', '-p', await folder($)]).catch(() => null)
+    await $.fs.write(path, JSON.stringify({ ...state, checkedAt: now, latest }))
+  }
+  const mine = await ownVersion($)
+  const show = latest && mine && isNewer(latest, mine) && state.later !== latest && !(await autoUpdateOn($))
+  await update($, newVersion, () => (show ? latest! : null))
+}
+
+// /mod_tint update and the band's Update now: the same as `claude plugin update`, asked by
+// the person. When it cannot run here, it says the command to type instead.
+async function updateTint($: EngineInterface): Promise<string> {
+  await update($, newVersion, () => null)
+  await update($, showAutoHow, () => false)
+  const run = await $.process.run(['claude', 'plugin', 'update', `tint@${MARKETPLACE}`]).catch(() => null)
+  if (run?.exitCode === 0) return 'tint is up to date. Type /reload-plugins (or start a new session) to use the new version.'
+  return `Could not update from here. Type ${UPDATE_COMMAND}, then /reload-plugins.`
+}
+
+const AUTO_UPDATE_STEPS = 'Paste (⌘V) and press Enter → Marketplaces → claude-code-tint-mod → Enable auto-update.'
+
+// Turn on auto-update: a mod cannot open Claude Code's plugin manager, so the button copies
+// /plugin and the band keeps the clicks in view. The person flips the switch there; the mod
+// never changes settings itself.
+async function openAutoUpdate($: EngineInterface): Promise<void> {
+  await update($, showAutoHow, () => true)
+  const copied = await $.ui.copy({ text: '/plugin' })
+  if (!copied.isCopied) $.ui.toast('tint: type /plugin, then Marketplaces → claude-code-tint-mod → Enable auto-update.')
+}
+
+async function updateLater($: EngineInterface, version: string): Promise<void> {
+  const path = `${await folder($)}/${UPDATE_STATE}`
+  await $.fs.write(path, JSON.stringify({ ...((await readJson<UpdateState>($, path)) ?? {}), later: version }))
+  await update($, newVersion, () => null)
+}
+
 // Saves the tint as the desktop app's DevTools snippet. 'go' opens Terminal to run the helper
 // (it quits the app, backs up its settings, saves the snippet, turns on Developer Mode, opens
 // the app again); 'line', or when Terminal cannot be opened, copies the Terminal line instead.
@@ -842,7 +935,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'mod_tint',
       description: 'Emoji, color and number for this window, shared per repository',
-      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop [go|line] | css [scan] | off | on | reset',
+      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop [go|line] | css [scan] | update | off | on | reset',
       immediate: true,
     })
 
@@ -850,16 +943,30 @@ export const register: Register = on => {
       const key = await repoKey($)
       const now = await $.clock.now()
       void pruneWindows($, now).catch(() => null)
+      // The auto-update steps open only on a tap, never left over from an earlier start or reload.
+      await update($, showAutoHow, () => false)
       void refreshOffer($).catch(() => null)
+      void checkUpdate($).catch(() => null)
       // The band's color clock runs only while the band shows, so it costs nothing otherwise.
       $.clock.every(GLOW_MS, async () => {
         const offer = await read($, desktopOffer)
-        if (offer === null) return
+        const fresh = await read($, newVersion)
+        if (offer === null && fresh === null) return
         await update($, glow, n => n + 1)
+        // On the desktop the reminder and a lone update notice count down; the auto-update
+        // steps pause the count while they are up.
+        const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
+          (offer === 'remind' || (offer === null && fresh !== null))
+        if (!timed) return
         const since = await read($, remindSince)
         const now = await $.clock.now()
-        if (offer === 'remind' && since === null && remindDrawn) await update($, remindSince, () => now)
-        if (offer === 'remind' && since !== null && now - since >= REMIND_MS) await remindDone($)
+        if (since === null) {
+          if (remindDrawn) await update($, remindSince, () => now)
+        } else if (await read($, showAutoHow)) {
+          await update($, remindSince, t => (t ?? now) + GLOW_MS)
+        } else if (now - since >= REMIND_MS) {
+          await (offer === 'remind' ? remindDone($) : bandDone($))
+        }
       })
       void rememberFolder($, key).catch(() => null)
       const n = await claimNumber($, key, await $.session.id(), now)
@@ -966,6 +1073,9 @@ export const register: Register = on => {
           ? `Choices for ${key} forgotten. Claude picked ${picked.icon} ${picked.color}. ${later}`
           : `Choices for ${key} forgotten. Claude could not pick right now, so the automatic color shows; it tries again next session.`,
       }
+    }
+    if (verb === 'update') {
+      return { text: await updateTint($) }
     }
     if (verb === 'repick') {
       const picked = await pickIdentity($, key, true)
@@ -1077,12 +1187,24 @@ export const register: Register = on => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const ink = isLight(tone) ? '#0B0B0B' : '#FFFFFF'
     const room = Math.max(0, Math.floor((e.props.bodyColumns - [...label].length - 16) / 2))
+    const fresh = await read($, newVersion)
     return (
-      <Box backgroundColor={tone} paddingX={1} justifyContent="space-between">
-        <Text color={ink} backgroundColor={tone} bold wrap="truncate">
-          {label}  <Text color={shade(tone, isLight(tone) ? -0.4 : 0.45)}>{GLYPHS[kind].repeat(room)}</Text>
-        </Text>
-        <Button key="next" label="Next color" plain onPress={() => nextColor($, key)} />
+      <Box flexDirection="column">
+        <Box backgroundColor={tone} paddingX={1} justifyContent="space-between">
+          <Text color={ink} backgroundColor={tone} bold wrap="truncate">
+            {label}  <Text color={shade(tone, isLight(tone) ? -0.4 : 0.45)}>{GLYPHS[kind].repeat(room)}</Text>
+          </Text>
+          <Button key="next" label="Next color" plain onPress={() => nextColor($, key)} />
+        </Box>
+        {fresh !== null && (await read($, showAutoHow)) && <Text key="update-how-steps">  👉 {AUTO_UPDATE_STEPS}</Text>}
+        {fresh !== null && (
+          <Box key="update-row" paddingX={1} gap={2}>
+            <Text>✨ <Text bold>tint {fresh}</Text> is ready.</Text>
+            <Button key="update-now" label="Update now" onPress={async () => $.ui.toast(`tint: ${await updateTint($)}`)} />
+            <Button key="update-how" label="Enable auto-update" plain onPress={() => openAutoUpdate($)} />
+            <Button key="update-later" label="Later" plain onPress={() => updateLater($, fresh)} />
+          </Box>
+        )}
       </Box>
     )
   })
@@ -1091,7 +1213,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, isHidden))) return next(e)
     const offer = await read($, desktopOffer)
-    if (offer === null) return next(e)
+    const fresh = await read($, newVersion)
+    if (offer === null && fresh === null) return next(e)
     const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     const settle = async (change: DesktopState, note?: string) => {
       await saveDesktopState($, change)
@@ -1131,49 +1254,78 @@ export const register: Register = on => {
         ],
       },
     }
-    const { title, steps } = lines[offer]
+    const { title, steps } = offer === null ? { title: '', steps: [] } : lines[offer]
     const base = fill((await read($, color)) ?? autoColor((await read($, repo)) ?? '…'))
     const step = await read($, glow)
     const now = glowColor(base, step)
+    const showHow = await read($, showAutoHow)
     // The reminder's strip is its countdown: full at first, shorter each second, gone at zero.
     // It starts the first time the band is drawn here (the clock tick reads this note), so a
     // survey or a late draw costs nothing. Drawing itself never writes state.
-    if (offer === 'remind') remindDrawn = true
+    const timed = offer === 'remind' || (offer === null && fresh !== null)
+    if (timed) remindDrawn = true
     const since = await read($, remindSince)
-    const left = offer === 'remind' ? (since === null ? REMIND_MS : Math.max(0, REMIND_MS - ((await $.clock.now()) - since))) : null
+    const left = timed && !showHow ? (since === null ? REMIND_MS : Math.max(0, REMIND_MS - ((await $.clock.now()) - since))) : null
     const lit = left === null ? GLOW_BLOCKS : Math.ceil((GLOW_BLOCKS * left) / REMIND_MS)
     return (
       <Box flexDirection="column" borderStyle="bold" borderColor={now}>
-        <Box key="top" alignItems="center" gap={2}>
-          <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
-            {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
-              <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={k < lit ? glowColor(base, step - k) : '#3A3836'} />
-            ))}
-          </Box>
-          {left !== null && (
-            <Box key="desktop-timer" gap={1} alignItems="center" paddingRight={1}>
-              <Text dimColor>Auto-closes in</Text>
-              <Text key="desktop-left" bold color={now}>⏳ {Math.ceil(left / 1000)}s</Text>
+        {!showHow && (
+          <Box key="top" alignItems="center" gap={2}>
+            <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
+              {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
+                <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={k < lit ? glowColor(base, step - k) : '#3A3836'} />
+              ))}
             </Box>
-          )}
-        </Box>
-        <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
-          <Box flexDirection="column">
-            <Markdown key="desktop-title" text={title} />
-            {steps.map((parts, i) => (
-              <Text key={`step-${i}`} wrap="wrap">
-                {parts.map((part, j) => typeof part === 'string' ? part : <Text key={`b-${j}`} bold color={now}>{part.bold}</Text>)}
-              </Text>
-            ))}
+            {left !== null && (
+              <Box key="desktop-timer" gap={1} alignItems="center" paddingRight={1}>
+                <Text dimColor>Auto-closes in</Text>
+                <Text key="desktop-left" bold color={now}>⏳ {Math.ceil(left / 1000)}s</Text>
+              </Box>
+            )}
           </Box>
-          <Box gap={1} alignItems="center">
-            {offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={install} />}
-            {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
-            {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
-            {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
-            {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" onPress={share} />}
+        )}
+        {offer !== null && !showHow && (
+          <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
+            <Box flexDirection="column">
+              <Markdown key="desktop-title" text={title} />
+              {steps.map((parts, i) => (
+                <Text key={`step-${i}`} wrap="wrap">
+                  {parts.map((part, j) => typeof part === 'string' ? part : <Text key={`b-${j}`} bold color={now}>{part.bold}</Text>)}
+                </Text>
+              ))}
+            </Box>
+            <Box gap={1} alignItems="center">
+              {offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={install} />}
+              {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
+              {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
+              {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
+              {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" onPress={share} />}
+            </Box>
           </Box>
-        </Box>
+        )}
+        {fresh !== null && !showHow && (
+          <Box key="update-footer" flexDirection="column">
+            {offer !== null && <Box key="update-divider" marginX={1} height={0.1} backgroundColor="#3A3836" />}
+            <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
+              <Text key="update-title">✨ <Text bold>New version</Text> <Text bold color={now}>{fresh}</Text></Text>
+              <Box gap={1} alignItems="center">
+                <Button key="update-now" label="Update now" onPress={async () => $.ui.toast(`tint: ${await updateTint($)}`)} />
+                <Button key="update-how" label="Enable auto-update" plain onPress={() => openAutoUpdate($)} />
+              </Box>
+            </Box>
+          </Box>
+        )}
+        {showHow && (
+          <Box key="update-how-steps" paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
+            <Box flexDirection="column">
+              <Text bold>Turn on auto-update <Text dimColor>(once, then tint updates itself)</Text></Text>
+              <Text wrap="wrap">1️⃣  Click the message box below, press <Text bold color={now}>⌘V</Text>, then <Text bold color={now}>Enter</Text>. (We copied <Text bold>/plugin</Text> for you.)</Text>
+              <Text wrap="wrap">2️⃣  Open the <Text bold color={now}>Marketplaces</Text> tab.</Text>
+              <Text wrap="wrap">3️⃣  Choose <Text bold color={now}>claude-code-tint-mod</Text>, then <Text bold color={now}>Enable auto-update</Text>.</Text>
+            </Box>
+            <Button key="update-got-it" label="Done" onPress={() => update($, showAutoHow, () => false)} />
+          </Box>
+        )}
       </Box>
     )
   })

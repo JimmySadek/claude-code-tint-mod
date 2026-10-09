@@ -16,6 +16,8 @@ declare module 'claude-code' {
       desktopOffer: 'install' | 'update' | 'remind' | null
       glow: number
       remindSince: number | null
+      newVersion: string | null
+      showAutoHow: boolean
     }
   }
 }

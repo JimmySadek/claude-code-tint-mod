@@ -103,6 +103,10 @@ const prompts = atom({ plugin: 'tint', key: 'prompts' } as const, 0)
 // What the band above the desktop prompt offers: install the desktop colors, update them,
 // or remind how to turn them on after an app start. null shows nothing.
 const desktopOffer = atom({ plugin: 'tint', key: 'desktopOffer' } as const, null)
+// The desktop band's color clock: one step every GLOW_MS while the band shows.
+const glow = atom({ plugin: 'tint', key: 'glow' } as const, 0)
+// When this window first showed the turn-on reminder (clock ms), for its countdown.
+const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
 
 type Window = { repo: string; n: number; seen: number; ended?: boolean }
 // manualColor: set by /mod_tint color, so a new emoji does not replace it.
@@ -436,6 +440,21 @@ async function refreshOffer($: EngineInterface): Promise<void> {
     offer = started !== null && state.doneFor !== started ? 'remind' : null
   }
   await update($, desktopOffer, () => offer)
+  if (offer !== 'remind') {
+    remindDrawn = false
+    await update($, remindSince, () => null)
+  }
+}
+
+// Set when the reminder band is drawn in this window; the countdown starts from it.
+let remindDrawn = false
+
+// Done, or the reminder's countdown running out: away in every window until the app starts again.
+async function remindDone($: EngineInterface): Promise<void> {
+  await saveDesktopState($, { doneFor: (await appStarted($)) ?? undefined })
+  await update($, desktopOffer, () => null)
+  await update($, remindSince, () => null)
+  remindDrawn = false
 }
 
 async function readChoices($: EngineInterface): Promise<Record<string, RepoChoice>> {
@@ -770,6 +789,26 @@ async function pickOnFirstPrompt($: EngineInterface): Promise<void> {
   void pickIdentity($, key).catch(() => null)
 }
 
+// The desktop band's colors: this repo's color, lightened to read on dark, then violet, sky,
+// pink and orange (bright enough for dark mode, bold enough for light), blended in GLOW_SUB
+// steps each. The strip, the border and the words to press all take them from one clock.
+const GLOW_MS = 500
+const GLOW_SUB = 8
+const REPO_URL = 'https://github.com/JimmySadek/claude-code-tint-mod'   // shown small on the desktop band, to find and share the mod
+const SHARE_TEXT = `I color my Claude Code windows with tint 🎨 Every repo gets its own emoji and color, in the terminal and the desktop app. ${REPO_URL}`
+const REMIND_MS = 30_000   // the turn-on reminder hides by itself after this, as Done would
+const GLOW_BLOCKS = 24
+function glowColor(base: string, step: number): string {
+  const ring = [shade(base, 0.25), '#A78BFA', '#38BDF8', '#F472B6', '#FB923C']
+  const total = ring.length * GLOW_SUB
+  const at = ((step % total) + total) % total
+  const from = ring[Math.floor(at / GLOW_SUB)]!
+  const to = ring[(Math.floor(at / GLOW_SUB) + 1) % ring.length]!
+  const t = (at % GLOW_SUB) / GLOW_SUB
+  const [a, b] = [channels(from), channels(to)]
+  return '#' + a.map((v, i) => Math.round(v + (b[i]! - v) * t).toString(16).padStart(2, '0')).join('').toUpperCase()
+}
+
 // Saves the tint as the desktop app's DevTools snippet. 'go' opens Terminal to run the helper
 // (it quits the app, backs up its settings, saves the snippet, turns on Developer Mode, opens
 // the app again); 'line', or when Terminal cannot be opened, copies the Terminal line instead.
@@ -812,6 +851,16 @@ export const register: Register = on => {
       const now = await $.clock.now()
       void pruneWindows($, now).catch(() => null)
       void refreshOffer($).catch(() => null)
+      // The band's color clock runs only while the band shows, so it costs nothing otherwise.
+      $.clock.every(GLOW_MS, async () => {
+        const offer = await read($, desktopOffer)
+        if (offer === null) return
+        await update($, glow, n => n + 1)
+        const since = await read($, remindSince)
+        const now = await $.clock.now()
+        if (offer === 'remind' && since === null && remindDrawn) await update($, remindSince, () => now)
+        if (offer === 'remind' && since !== null && now - since >= REMIND_MS) await remindDone($)
+      })
       void rememberFolder($, key).catch(() => null)
       const n = await claimNumber($, key, await $.session.id(), now)
       await update($, repo, () => key)
@@ -1043,7 +1092,7 @@ export const register: Register = on => {
     if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, isHidden))) return next(e)
     const offer = await read($, desktopOffer)
     if (offer === null) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     const settle = async (change: DesktopState, note?: string) => {
       await saveDesktopState($, change)
       await update($, desktopOffer, () => null)
@@ -1056,22 +1105,74 @@ export const register: Register = on => {
         ? 'tint: Terminal is opening. Claude quits and comes back in a few seconds.'
         : 'tint: Terminal line copied. Open Terminal, paste with ⌘V, press Enter.')
     }
+    const share = async () => {
+      const copied = await $.ui.copy({ text: SHARE_TEXT })
+      $.ui.toast(copied.isCopied ? 'tint: copied. Paste it to a friend 💌' : `tint: ${REPO_URL}`)
+    }
     const later = async () => settle({ updateLater: scriptMark((await tintScript($)) ?? '') })
-    const done = async () => settle({ doneFor: (await appStarted($)) ?? undefined })
-    const say = {
-      install: '🎨 Color the whole app too? Claude restarts once to set it up.',
-      update: '🎨 New desktop colors are ready. Claude restarts once to install them.',
-      remind: '🎨 Turn on the colors: press ⌥⌘I, then right-click tint → Run.',
-    }[offer]
+    // Each offer: a one-line title in Markdown (so the mod's name is a bold link to its page,
+    // to find it again and share it), then one line per step with what to press in bold.
+    type Part = string | { bold: string }
+    const MOD = `[**tint mod ↗**](${REPO_URL})`
+    const lines: Record<'install' | 'update' | 'remind', { title: string; steps: Part[][] }> = {
+      install: {
+        title: `**Color the whole app** with your ${MOD}?`,
+        steps: [['Click ', { bold: 'Color the app' }, '. Claude closes and opens again by itself (a few seconds).']],
+      },
+      update: {
+        title: `**New colors** for your ${MOD} are ready`,
+        steps: [['Click ', { bold: 'Update' }, '. Claude closes and opens again by itself (a few seconds).']],
+      },
+      remind: {
+        title: `**2 steps** to activate your ${MOD}`,
+        steps: [
+          ['1️⃣  Press ', { bold: '⌥⌘I' }, ' (Option + Command + I). A small tools window opens.'],
+          ['2️⃣  In that window, right-click ', { bold: 'tint' }, ', then click ', { bold: 'Run' }, '.'],
+        ],
+      },
+    }
+    const { title, steps } = lines[offer]
+    const base = fill((await read($, color)) ?? autoColor((await read($, repo)) ?? '…'))
+    const step = await read($, glow)
+    const now = glowColor(base, step)
+    // The reminder's strip is its countdown: full at first, shorter each second, gone at zero.
+    // It starts the first time the band is drawn here (the clock tick reads this note), so a
+    // survey or a late draw costs nothing. Drawing itself never writes state.
+    if (offer === 'remind') remindDrawn = true
+    const since = await read($, remindSince)
+    const left = offer === 'remind' ? (since === null ? REMIND_MS : Math.max(0, REMIND_MS - ((await $.clock.now()) - since))) : null
+    const lit = left === null ? GLOW_BLOCKS : Math.ceil((GLOW_BLOCKS * left) / REMIND_MS)
     return (
-      <Box paddingX={1} justifyContent="space-between" alignItems="center">
-        <Text wrap="wrap">{say}</Text>
-        <Box gap={1}>
-          {offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={install} />}
-          {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
-          {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
-          {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
-          {offer === 'remind' && <Button key="desktop-done" label="Done" onPress={done} />}
+      <Box flexDirection="column" borderStyle="bold" borderColor={now}>
+        <Box key="top" alignItems="center" gap={2}>
+          <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
+            {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
+              <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={k < lit ? glowColor(base, step - k) : '#3A3836'} />
+            ))}
+          </Box>
+          {left !== null && (
+            <Box key="desktop-timer" gap={1} alignItems="center" paddingRight={1}>
+              <Text dimColor>Auto-closes in</Text>
+              <Text key="desktop-left" bold color={now}>⏳ {Math.ceil(left / 1000)}s</Text>
+            </Box>
+          )}
+        </Box>
+        <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
+          <Box flexDirection="column">
+            <Markdown key="desktop-title" text={title} />
+            {steps.map((parts, i) => (
+              <Text key={`step-${i}`} wrap="wrap">
+                {parts.map((part, j) => typeof part === 'string' ? part : <Text key={`b-${j}`} bold color={now}>{part.bold}</Text>)}
+              </Text>
+            ))}
+          </Box>
+          <Box gap={1} alignItems="center">
+            {offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={install} />}
+            {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
+            {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
+            {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
+            {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" onPress={share} />}
+          </Box>
         </Box>
       </Box>
     )

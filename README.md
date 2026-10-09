@@ -40,11 +40,11 @@ A mod can draw inside the conversation, but not the app around it. For the full 
 
 **Once: install it.**
 
-1. In the desktop app, a band above the message box asks **"Color the whole app too?"**. Click **Color the app**. (Or type `/mod_tint desktop go`.)
+1. In the desktop app, a band above the message box asks **"Color the whole app with your tint mod?"**. Click **Color the app**. (Or type `/mod_tint desktop go`.)
 2. **Terminal** opens and Claude quits for a few seconds. Terminal backs up the app's settings, saves the script as the DevTools snippet `tint`, turns on the app's **Developer Mode** if it is off, and opens Claude again.
 3. Turn on the colors: press **⌥⌘I** (Option + Command + I). A small tools window opens (the app's DevTools). In its list, right-click `tint` and choose **Run**. Close the tools window with **⌥⌘I** again.
 
-**After each app start:** the band reminds you of the same three clicks. Click **Done** and it leaves every window until the next app start. The tools window only changes the colors you see; nothing is sent and nothing is saved.
+**After each app start:** the band shows the **2 steps** (⌥⌘I, then right-click `tint` → **Run**) with a color strip that counts down 30 seconds, then closes by itself in every window until the next app start. **💌 Share tint** copies a short message with the link, to send to a friend. The tools window only changes the colors you see; nothing is sent and nothing is saved.
 
 Not now? Click **No thanks** and the band stays away; `/mod_tint desktop` sets it up any time.
 

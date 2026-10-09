@@ -6,7 +6,9 @@ All notable changes to this mod. Versions follow [semantic versioning](https://s
 
 ### Added
 - **One click to color the whole desktop app.** In the desktop app, a band above the message box asks "Color the whole app too?". **Color the app** runs the same install as `/mod_tint desktop go` (Developer Mode included); **No thanks** keeps the band away in every window, and `/mod_tint desktop` still works any time.
-- **A reminder after each app start.** Restarting the app turns the colors off, so the band shows how to turn them on (⌥⌘I, right-click `tint`, Run). **Done** hides it in every window until the app starts again.
+- **A reminder after each app start.** Restarting the app turns the colors off, so the band shows the 2 steps to turn them on (⌥⌘I, then right-click `tint` → Run). It closes by itself after 30 seconds, counted from when you first see it, in every window until the app starts again.
+- **A band worth looking at.** A bold border and a strip of colors flow together with the words to press, in colors that read well in dark mode. On the reminder, the strip is the countdown.
+- **Easy to find and share.** The band names the mod as a link to its page, and **💌 Share tint** copies a short message with the link.
 
 ### Changed
 - **Desktop updates are a band, not a one-time notice.** When the saved snippet is an older script, the band offers **Update** or **Later** (Later waits for the next version).

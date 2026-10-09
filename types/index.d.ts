@@ -14,6 +14,8 @@ declare module 'claude-code' {
       isTitling: boolean
       prompts: number
       desktopOffer: 'install' | 'update' | 'remind' | null
+      glow: number
+      remindSince: number | null
     }
   }
 }

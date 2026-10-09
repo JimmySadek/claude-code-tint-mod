@@ -78,8 +78,9 @@ const prefsWith = (snippet?: string) => JSON.stringify({
 })
 
 function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1], files: Map<string, string>, openFails = false) {
-  const out = { copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][], ps: '' }
-  mock.clock(on, { now: 1_000_000 })
+  const out = { copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][], ps: '', clock: undefined as unknown as ReturnType<typeof mock.clock> }
+  const clock = mock.clock(on, { now: 1_000_000 })
+  Object.assign(out, { clock })
   mock.env(on, { HOME })
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: '/work/lab-notes' }))
@@ -195,7 +196,7 @@ test('desktop band: offers the install once; No thanks keeps it away in every wi
   const out = desktopWorld(on, files)
   await $.session.start(START)
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await ui.find({ type: 'Text', text: /Color the whole app too/ })).toBeDefined()
+  expect(await ui.find({ key: 'desktop-install' })).toBeDefined()
   await ui.press({ key: 'desktop-no' })
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).isInstallDeclined).toBe(true)
   expect(await ui.find({ key: 'desktop-install' })).toBeUndefined()
@@ -234,7 +235,7 @@ test('desktop band: an older snippet offers the update; repo colors alone never 
   files.set(`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{}/*REPOS*/ // tint v0'))
   await $.session.start(START)
   const older = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await older.find({ type: 'Text', text: /New desktop colors are ready/ })).toBeDefined()
+  expect(await older.find({ key: 'desktop-update' })).toBeDefined()
   await older.press({ key: 'desktop-later' })
   await older.unmount()
   await $.session.start(START)
@@ -249,24 +250,51 @@ test('desktop band: once per app start, how to turn the colors on; Done until th
   out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
   await $.session.start(START)
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await ui.find({ type: 'Text', text: /press ⌥⌘I, then right-click tint → Run/ })).toBeDefined()
-  await ui.press({ key: 'desktop-done' })
+  expect(await ui.find({ key: 'desktop-title' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '⌥⌘I' })).toBeDefined()
+  expect(await ui.find({ key: 'glow-0' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /2️⃣\s+In that window, right-click/ })).toBeDefined()
+  expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
+  await ui.press({ key: 'desktop-share' })
+  expect(out.copied).toContain('https://github.com/JimmySadek/claude-code-tint-mod')
+  expect(out.toasts).toContain('tint: copied. Paste it to a friend 💌')
+  await out.clock.advance(30_500)
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
   await ui.unmount()
 
   await $.session.start(START)
   const again = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await again.find({ key: 'desktop-done' })).toBeUndefined()
+  expect(await again.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
   await again.unmount()
 
   out.ps = APP_ROW('Fri Oct  9 09:00:00 2026')
   await $.session.start(START)
   const restarted = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await restarted.find({ key: 'desktop-done' })).toBeDefined()
+  expect(await restarted.find({ type: 'Text', text: /⏳/ })).toBeDefined()
   await restarted.unmount()
 
   // The terminal never shows the desktop band.
   const term = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
-  expect(await term.find({ key: 'desktop-done' })).toBeUndefined()
+  expect(await term.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
   await term.unmount()
 })
+
+test('desktop band: the reminder counts down 30 seconds, then hides like Done', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
+  const out = desktopWorld(on, files)
+  out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
+  await $.session.start(START)
+  // Time before the band is first drawn (a survey up, say) does not count.
+  await out.clock.advance(20_000)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /⏳ 30s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Auto-closes in' })).toBeDefined()
+  // The clock tick after the first draw starts it (at most half a second later).
+  await out.clock.advance(10_500)
+  expect(await ui.find({ type: 'Text', text: /⏳ 20s/ })).toBeDefined()
+  await out.clock.advance(20_500)
+  expect(await ui.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
+  expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
+  await ui.unmount()
+})
+

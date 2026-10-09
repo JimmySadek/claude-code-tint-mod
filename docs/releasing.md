@@ -27,6 +27,7 @@ The version lives in two files and must be the same in both:
    claude plugin test .
    node --check desktop/tint.js
    node --check desktop/scan.js
+   python3 -m py_compile helpers/desktop-snippet.py
    ```
 
 5. If `desktop/tint.js` changed, try it in the desktop app: light and dark mode, one window, two windows side by side, and opening or closing a side panel. Run it twice to check that it turns off cleanly.

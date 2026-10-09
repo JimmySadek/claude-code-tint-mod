@@ -36,6 +36,19 @@ Where a repository's color comes from:
 
 So a new repository needs no new copy of the script.
 
+## Installing the desktop tint
+
+The app keeps DevTools snippets in its settings file, `~/Library/Application Support/Claude/Preferences`, under `electron → devtools → preferences → script-snippets`. It rewrites that file while it runs, so a change made then would be lost.
+
+`/mod_tint desktop` writes the script (with saved colors) to `~/.claude/window-tint/desktop-snippet.js` and copies one Terminal line that runs `helpers/desktop-snippet.py`:
+
+1. It quits the app (the app's own Quit) and waits for it to close.
+2. It copies the settings file to `~/.claude/window-tint/Preferences.backup`.
+3. It saves the snippet `tint` (replacing an older one) and sets DevTools to open on Sources → Snippets. Nothing else changes. It checks the new file reads back as valid JSON before swapping it in.
+4. It opens the app again and exits. Nothing keeps running.
+
+At the start of a desktop session the mod compares the saved snippet with its own script (repo colors left out, since the script learns them) and says once when an update is ready.
+
 How it draws:
 
 - **Tints** set the app's own color variables inside each window, so the app keeps drawing everything itself.

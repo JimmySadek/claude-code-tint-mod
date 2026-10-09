@@ -8,8 +8,8 @@ import type { EngineInterface, FsEntry, Register, RenderSurface } from 'claude-c
 // color is for the border around your messages. Windows of the same repo get
 // numbers (1, 2, 3...), each in its own shade. The numbers are agreed through
 // small files in ~/.claude/window-tint/, which every running window can read.
-// On the desktop app, /mod_tint css copies desktop/tint.js, which colors the whole app
-// window from its DevTools console.
+// On the desktop app, desktop/tint.js colors the whole app window from its DevTools:
+// /mod_tint desktop saves it there as a snippet, /mod_tint css copies it to paste by hand.
 
 const PALETTE: Record<string, string> = {
   red: '#EF4444',
@@ -54,6 +54,15 @@ const HELPER_BINARY = 'emoji-color-v1'
 const EMOJI_COLORS = 'emoji-colors.json'
 const VIVID_SATURATION = 0.4
 const VIVID_BRIGHTNESS = 0.35
+// The desktop app keeps DevTools snippets in its settings file (Preferences) and rewrites
+// that file while it runs. /mod_tint desktop copies one Terminal line that quits the app,
+// saves the tint snippet with helpers/desktop-snippet.py (a backup first), and opens it again.
+const APP_SUPPORT = 'Library/Application Support/Claude'
+const SNIPPET_HELPER = 'helpers/desktop-snippet.py'
+const SNIPPET_FILE = 'desktop-snippet.js'
+const SNIPPET_BACKUP = 'Preferences.backup'
+const SNIPPET_STATE = 'desktop.json'
+const REPOS_PART = /\/\*REPOS\*\/[\s\S]*?\/\*REPOS\*\//
 const PATTERNS = ['triangles', 'circles', 'stripes', 'diamonds', 'waves', 'hexes', 'blocks', 'chevrons'] as const
 type Pattern = (typeof PATTERNS)[number]
 // The terminal has no pictures, so each pattern has a glyph row instead.
@@ -123,14 +132,33 @@ const USAGE = [
   '',
   '| Command | What it does |',
   '|---|---|',
-  '| `/mod_tint css` | Copy the whole-app tint, with the steps to save it once as a DevTools snippet. |',
+  '| `/mod_tint desktop` | Install or update the whole-app tint: copies one Terminal line that saves it in the app for you. |',
+  '| `/mod_tint css` | Copy the whole-app tint to paste by hand (a DevTools snippet or the Console). |',
   '| `/mod_tint css scan` | Copy a look-only layout report, for when an app update breaks the tint. |',
 ].join('\n')
+
+// Shown after /mod_tint desktop. `line` is shown when it could not be copied.
+function desktopSteps(line: string | null, isDevMode: boolean): string {
+  return [
+    line === null
+      ? '✅ **One Terminal line copied.** It quits Claude, saves the tint in the app as a DevTools snippet (a backup of the app\'s settings first), and opens Claude again.'
+      : 'Run this line in **Terminal**. It quits Claude, saves the tint in the app as a DevTools snippet (a backup of the app\'s settings first), and opens Claude again.\n\n```\n' + line + '\n```',
+    '',
+    ...(line === null ? ['1. Open **Terminal** (⌘Space, type `Terminal`, Enter).', '2. Paste with **⌘V**, press **Enter**.'] : ['1. Open **Terminal** and run the line above.']),
+    '3. When Claude is back: **⌥⌘I**, right-click **tint**, choose **Run**.',
+    '',
+    '**After each app start:** **⌥⌘I** → right-click **tint** → **Run**.',
+    'This window closes with the app and is still there when Claude opens.',
+    ...(isDevMode ? [] : ['', '⚠️ **Developer Mode is off**, so ⌥⌘I does nothing yet. Turn it on first: **Help → Troubleshooting → Enable Developer Mode…**']),
+  ].join('\n')
+}
 
 // Shown after /mod_tint css. The app cannot load the script by itself (it refuses debugging
 // switches and its code is sealed), so it is saved once as a DevTools snippet.
 const DESKTOP_STEPS = [
   '✅ **Desktop tint copied.**',
+  '',
+  '💡 Easier: `/mod_tint desktop` saves it in the app for you.',
   '',
   '**Once: save it as a snippet** (in the desktop app)',
   '1. Press **⌥⌘I**. DevTools opens.',
@@ -310,6 +338,42 @@ async function readJson<T>($: EngineInterface, path: string): Promise<T | null> 
   } catch {
     return null
   }
+}
+
+// desktop/tint.js with every repo's color filled in (kept between its /*REPOS*/ marks).
+async function tintScript($: EngineInterface): Promise<string | null> {
+  const source = await $.fs.read(`${$.plugin.root}/desktop/tint.js`).catch(() => null)
+  if (source === null) return null
+  return source.replace(REPOS_PART, `/*REPOS*/${JSON.stringify(desktopRepos(await readChoices($)))}/*REPOS*/`)
+}
+
+// The "tint" snippet saved in the desktop app's DevTools, or null when there is none.
+async function savedSnippet($: EngineInterface): Promise<string | null> {
+  const home = (await $.env.get('HOME')) ?? ''
+  type Prefs = { electron?: { devtools?: { preferences?: Record<string, string> } } }
+  const prefs = await readJson<Prefs>($, `${home}/${APP_SUPPORT}/Preferences`)
+  try {
+    const snippets = JSON.parse(prefs?.electron?.devtools?.preferences?.['script-snippets'] ?? '[]') as { name?: string; content?: string }[]
+    return snippets.find(item => item.name === 'tint')?.content ?? null
+  } catch {
+    return null
+  }
+}
+
+// In the desktop app: when the saved snippet is older than the mod's script, say so once per
+// script version. Repo colors are left out of the comparison: the script learns them itself.
+async function desktopNotice($: EngineInterface): Promise<void> {
+  if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return
+  const saved = await savedSnippet($)
+  const script = await tintScript($)
+  if (saved === null || script === null) return
+  const plain = (text: string) => text.replace(REPOS_PART, '')
+  if (plain(saved) === plain(script)) return
+  const mark = hash(plain(script), 7).toString(16)
+  const statePath = `${await folder($)}/${SNIPPET_STATE}`
+  if ((await readJson<{ notified?: string }>($, statePath))?.notified === mark) return
+  await $.fs.write(statePath, JSON.stringify({ notified: mark }))
+  $.ui.toast('window-tint: the desktop tint has an update. /mod_tint desktop installs it.')
 }
 
 async function readChoices($: EngineInterface): Promise<Record<string, RepoChoice>> {
@@ -649,7 +713,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'mod_tint',
       description: 'Emoji, color and number for this window, shared per repository',
-      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | css [scan] | off | on | reset',
+      argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop | css [scan] | off | on | reset',
       immediate: true,
     })
 
@@ -657,6 +721,7 @@ export const register: Register = on => {
       const key = await repoKey($)
       const now = await $.clock.now()
       void pruneWindows($, now).catch(() => null)
+      void desktopNotice($).catch(() => null)
       void rememberFolder($, key).catch(() => null)
       const n = await claimNumber($, key, await $.session.id(), now)
       await update($, repo, () => key)
@@ -770,12 +835,29 @@ export const register: Register = on => {
           : `Claude could not choose right now, so ${key} keeps its emoji and color. Try /mod_tint repick again later.`,
       }
     }
+    if (verb === 'desktop') {
+      const home = (await $.env.get('HOME')) ?? ''
+      const prefs = `${home}/${APP_SUPPORT}/Preferences`
+      if ((await $.fs.read(prefs).catch(() => null)) === null) {
+        return { text: 'The Claude desktop app\'s settings were not found on this computer (it works on macOS). `/mod_tint css` copies the script to paste by hand.' }
+      }
+      const script = await tintScript($)
+      if (script === null) return { text: `window-tint: could not read ${$.plugin.root}/desktop/tint.js.` }
+      const dir = await folder($)
+      await $.process.run(['mkdir', '-p', dir])
+      await $.fs.write(`${dir}/${SNIPPET_FILE}`, script)
+      const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
+      const line = ['/usr/bin/python3', quote(`${$.plugin.root}/${SNIPPET_HELPER}`), '--prefs', quote(prefs),
+        '--snippet', quote(`${dir}/${SNIPPET_FILE}`), '--backup', quote(`${dir}/${SNIPPET_BACKUP}`), '--restart'].join(' ')
+      const copied = await $.ui.copy({ text: line })
+      const devMode = await readJson<{ allowDevTools?: boolean }>($, `${home}/${APP_SUPPORT}/developer_settings.json`)
+      return { text: desktopSteps(copied.isCopied ? null : line, devMode?.allowDevTools === true) }
+    }
     if (verb === 'css') {
       const isScan = rest.toLowerCase() === 'scan'
       const file = `${$.plugin.root}/desktop/${isScan ? 'scan' : 'tint'}.js`
-      const source = await $.fs.read(file).catch(() => null)
-      if (source === null) return { text: `window-tint: could not read ${file}.` }
-      const text = isScan ? source : source.replace('/*REPOS*/{}/*REPOS*/', JSON.stringify(desktopRepos(await readChoices($))))
+      const text = isScan ? await $.fs.read(file).catch(() => null) : await tintScript($)
+      if (text === null) return { text: `window-tint: could not read ${file}.` }
       const copied = await $.ui.copy({ text })
       if (!copied.isCopied) return { text: `Could not copy here. The script is ${file}.` }
       return {

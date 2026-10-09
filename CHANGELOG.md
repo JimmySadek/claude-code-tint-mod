@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.2.0] - 2026-10-09
+
+### Added
+- **`/mod_tint desktop` installs the desktop tint for you.** It copies one Terminal line. Pasted in Terminal, it quits Claude, backs up the app's settings, saves the script as the DevTools snippet `tint`, sets DevTools to open on Snippets, and opens Claude again. Then: ⌥⌘I → right-click `tint` → Run. No copying the script, no creating a snippet. Nothing keeps running afterwards.
+- **Update notice:** in the desktop app, Claude Code says once when the saved snippet is older than the mod's script. Repo colors alone never count, since the script learns them.
+
+### Changed
+- `/mod_tint css` stays, for installing by hand; its answer points to `/mod_tint desktop`.
+
 ## [1.1.1] - 2026-10-09
 
 ### Fixed

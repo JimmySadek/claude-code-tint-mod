@@ -136,7 +136,8 @@
   // (class group/section) as that repo's threads; a thread belongs to the last heading above it.
   // The repo's emoji is the one its most recent thread's title starts with ("🗂️1️⃣ Repo-fit check"),
   // skipping the plain color squares older versions used before an emoji was picked.
-  // A heading counts only when its name is the end of its folder path (not "No folder").
+  // A heading counts only when its name is the end of its folder path, ignoring case, spaces,
+  // "-" and "_" (the app shows BAM-Knowledge for a BAM_Knowledge folder), so never "No folder".
   const SQUARES = new Set(['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '⬜'])
   const plain = text => bare(text.replace(/[\p{Co}\p{Cf}]/gu, ''))   // icon glyphs and invisible marks out
   const headingOf = row => {
@@ -145,7 +146,8 @@
     for (const el of section?.querySelectorAll('[data-row-key^="label:project-"]') ?? []) {
       if (!(el.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING)) continue
       const text = plain(el.textContent || ''), path = el.getAttribute('data-row-key').slice(14).replace(/[\\/]+$/, '')
-      name = text && path.split(/[\\/]/).pop() === text ? text : null
+      const loose = value => value.toLowerCase().replace(/[\s_-]+/g, '')
+      name = text && loose(path.split(/[\\/]/).pop() ?? '') === loose(text) ? text : null
     }
     return name
   }

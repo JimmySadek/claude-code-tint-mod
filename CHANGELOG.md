@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.3.1] - 2026-10-09
+
+### Fixed
+- **A repository whose folder name differs from its shown name stayed grey** (a `BAM_Knowledge` folder shown as `BAM-Knowledge`): its sidebar name had no color or emoji, and its threads got no hover tint. Names are now compared ignoring case, spaces, `-` and `_`. Run `/mod_tint desktop go` to install the fixed script.
+
 ## [1.3.0] - 2026-10-09
 
 ### Changed

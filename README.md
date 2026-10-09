@@ -2,7 +2,7 @@
   <img src="assets/images/banner.png" alt="claude-code-tint-mod: tell your Claude Code windows apart" width="100%">
 </p>
 
-[![Version](https://img.shields.io/badge/version-1.1.0-46AD5B)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.1.1-46AD5B)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757)](https://code.claude.com/docs/en/plugins/mods/overview)
 
@@ -36,7 +36,7 @@ Then type `/mod_tint` to check. You should see the help.
 
 ## Color the whole desktop app (optional)
 
-A mod can draw inside the conversation, but not the app around it. For the full look (ring, tints, colored sidebar), you save a small script in the desktop app's DevTools once. After that it takes four keys each time you start the app.
+A mod can draw inside the conversation, but not the app around it. For the full look (ring, tints, colored sidebar), you save a small script in the desktop app's DevTools once. After that it takes a few clicks each time you start the app.
 
 > **Why not fully automatic?** The desktop app doesn't load outside scripts. It refuses to start with debugging switches and its code is sealed, which protects your signed-in account. A saved snippet is the safe way in.
 
@@ -48,9 +48,9 @@ A mod can draw inside the conversation, but not the app around it. For the full 
 2. In the Claude desktop app, press **⌥⌘I** (Option + Command + I). DevTools opens.
 3. Click **Sources**, then **Snippets** in its left panel (behind **»** if you don't see it).
 4. Click **+ New snippet**, name it `tint`, paste with **⌘V**, save with **⌘S**.
-5. Press **⌘↵** (Command + Return) to run it. The console answers `window-tint on · …`.
+5. Right-click `tint` in the list and choose **Run** (or press **⌘↵**). The console answers `window-tint on · …`.
 
-**After each app start:** press **⌥⌘I**, then **⌘P**, type `!tint`, press **Enter**, then **⌥⌘I** to close DevTools.
+**After each app start:** press **⌥⌘I**, open **Sources → Snippets**, right-click `tint` and choose **Run**. Press **⌥⌘I** again to close DevTools. The snippet stays saved when the app restarts.
 
 New repositories are picked up by themselves: the script reads the repository names in the sidebar and the emoji their threads start with. So the snippet stays as it is until the script itself changes (see [Update](#update)).
 
@@ -77,7 +77,7 @@ What you get:
 | The console refuses to paste | Type `allow pasting`, press Enter, then paste again. |
 | The tint looks doubled or stuck | Reload the app (in the console: `location.reload()`), then run the snippet once. |
 | A repository's name stays grey | Its threads have no emoji yet. Send a second message in one of its windows (the title gets its emoji then), or set a color with `/mod_tint color` and run `/mod_tint css` again. |
-| `!tint` finds nothing after ⌘P | Click inside DevTools first, so ⌘P goes to DevTools and not to the app. Still nothing? Check the snippet is still in **Sources → Snippets**. |
+| `ReferenceError: tint is not defined` | You typed the snippet's name in the Console. Run it from **Sources → Snippets** instead: right-click `tint` → **Run**. |
 | The tint stopped working after an app update | Type `/mod_tint css scan`, run it the same way, and [open an issue](../../issues/new/choose) with the report. The scan only reads. Details: [docs/how-it-works.md](docs/how-it-works.md). |
 
 ## Update

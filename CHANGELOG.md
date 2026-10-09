@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.1.1] - 2026-10-09
+
+### Fixed
+- **Run the snippet from Sources → Snippets** (right-click `tint` → Run). The ⌘P → `!tint` shortcut from 1.1.0 does not reach DevTools in the desktop app. Tested in the app: the snippet stays saved across app restarts.
+
 ## [1.1.0] - 2026-10-09
 
 ### Added

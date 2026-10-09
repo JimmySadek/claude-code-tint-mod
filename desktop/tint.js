@@ -2,7 +2,7 @@
 //
 // How to use: type /mod_tint css in Claude Code (it copies this script), open the desktop app's
 // DevTools with ⌥⌘I, choose Console, paste, press Enter. Better: save it once as a DevTools
-// snippet (Sources → Snippets) and after each app start run it with ⌥⌘I, ⌘P, !tint, Enter.
+// snippet (Sources → Snippets) and after each app start run it there: right-click it, Run.
 // Run it again to turn it off. Reloading the app also removes it.
 //
 // What it does (display only; it sends nothing, stores nothing and changes no file):

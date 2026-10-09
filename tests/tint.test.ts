@@ -4,6 +4,8 @@ const BAND = {
   component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
 } as const
+// The desktop footer beside the mode labels, where the colors label sits.
+const FOOTER = { component: 'SessionMode', props: { modes: [] } } as const
 const HOME = '/home/me'
 // What the engine stamps on a command the person types at the prompt.
 const AT_PROMPT = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
@@ -54,16 +56,19 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   const term = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
   expect(await term.find({ type: 'Text', text: /CLAUDE-MODS\s+2/ })).toBeDefined()
   await term.unmount()
-  // Desktop: no strip above the prompt; only the 1-pixel picture whose label hands the
-  // desktop script every repo's chosen look, so a new color shows without a reinstall.
+  // Desktop: nothing above the prompt (the app would wrap it in an empty card). The 1-pixel
+  // picture whose label hands the desktop script every repo's chosen look sits in the footer.
   const noBand = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  const tag = await noBand.find({ type: 'Svg' })
+  expect(await noBand.find({ type: 'Svg' })).toBeUndefined()
+  await noBand.unmount()
+  const footerTag = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...FOOTER })
+  const tag = await footerTag.find({ type: 'Svg' })
   expect(tag?.props.width).toBe(1)
   expect(tag?.props.height).toBe(1)
   expect(String(tag?.props.alt)).toStartWith('tint-colors {')
   // The window's own repo and number, so the desktop script knows it with the sidebar hidden.
   expect(JSON.parse(String(tag?.props.alt).slice('tint-colors '.length)).window).toEqual(['claude-mods', 2])
-  await noBand.unmount()
+  await footerTag.unmount()
   // No strip on messages any more.
   const message = await $.ui.mount({
     plugin: 'tint', surface: 'desktop', component: 'UserMessage',
@@ -77,7 +82,7 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   await $.command.run({ command: 'mod_tint', args: 'pattern waves', ...AT_PROMPT })
   // The color just chosen is in the picture's label at once, under the repo's name and its
   // folder's, so the saved desktop script shows it without being saved again.
-  const live = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  const live = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...FOOTER })
   const label = JSON.parse(String((await live.find({ type: 'Svg' }))?.props.alt).slice('tint-colors '.length)).repos
   expect(label['claude-mods'][0]).toBe('#14B8A6')
   expect(label['claude-mods-wt'][0]).toBe('#14B8A6')
@@ -152,7 +157,7 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   expect(await hidden.find({ type: 'Svg' })).toBeUndefined()
   await hidden.unmount()
   // Hidden: no picture above the prompt either.
-  const hiddenBand = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  const hiddenBand = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...FOOTER })
   expect(await hiddenBand.find({ type: 'Svg' })).toBeUndefined()
   await hiddenBand.unmount()
 })

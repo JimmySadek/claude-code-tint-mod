@@ -31,7 +31,7 @@ What it looks for in the app's page (measured on Claude desktop 2.26454, October
 
 Where a repository's color comes from:
 
-1. **Live colors:** the mod draws a 1-pixel picture above each desktop message box (an `Svg` in the `AbovePrompt` slot) whose label is `tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}`: every repository's chosen look from `repos.json`, and the window's own repository and number. The script reads these labels on each repaint, so a color chosen later shows at once with no reinstall, and a window is known even when the sidebar is hidden.
+1. **Live colors:** the mod draws a 1-pixel picture in each desktop window's footer (an `Svg` in the `SessionMode` slot, beside the mode labels; above the prompt the app wraps it in an empty card) whose label is `tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}`: every repository's chosen look from `repos.json`, and the window's own repository and number. The script reads these labels on each repaint, so a color chosen later shows at once with no reinstall, and a window is known even when the sidebar is hidden.
 2. **Saved colors** filled in when the snippet was saved (from `repos.json`), when the repository is there.
 3. Otherwise **learned from the page**: the emoji its threads start with (`🗂️1️⃣ …`), drawn on a canvas and measured the same way the mod measures it. A grey emoji gets a steady color made from the emoji itself. Only repo headings count, never date headings like "Older".
 

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.7.1-46AD5B" alt="Version 1.7.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.7.2-46AD5B" alt="Version 1.7.2"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://code.claude.com/docs/en/plugins/mods/overview"><img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757" alt="Claude Code 2.1.287 or later"></a>
 </p>
@@ -90,6 +90,7 @@ Updates: when a new version is out, the band says **✨ New version** with an **
 |---|---|
 | `/mod_tint` does nothing | Start a **new** session. |
 | ⌥⌘I does nothing | Turn on Developer Mode: **Help → Troubleshooting → Enable Developer Mode…** |
+| A second app window has no colors | Each app window runs the script on its own: in that window press **⌥⌘I**, then right-click **tint** → **Run**. |
 | The tint looks doubled or stuck | Reload the app, then run the snippet once. |
 | The app looks wrong after the install | Quit Claude and copy `~/.claude/window-tint/Preferences.backup` back over `~/Library/Application Support/Claude/Preferences`. |
 | The tint stopped working after an app update | Type `/mod_tint css scan`, run it the same way, and [open an issue](../../issues/new/choose) with the report. |

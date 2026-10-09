@@ -35,7 +35,7 @@
   if (window.__windowTint) { window.__windowTint.off(); return 'window-tint off' }
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
-  // Live labels: tint draws a 1-pixel picture above each message box, labelled
+  // Live labels: tint draws a 1-pixel picture in each window's footer, labelled
   // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}': every repo's
   // chosen look, so a color chosen after this script was saved shows on the next repaint, and
   // the window's own repo and number, so a window is known even with the sidebar hidden.

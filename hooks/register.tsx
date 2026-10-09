@@ -111,7 +111,7 @@ const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
 const newVersion = atom({ plugin: 'tint', key: 'newVersion' } as const, null)
 // Set by the band's Turn on auto-update: the band then shows where to click.
 const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
-// For desktop/tint.js, the label of a 1-pixel picture above the desktop prompt (LIVE_TAG):
+// For desktop/tint.js, the label of a 1-pixel picture in the desktop prompt's footer (LIVE_TAG):
 // `{"repos": {name: [color, emoji]}, "window": [repo, number]}`, every repo's chosen look and
 // this window's own repo and number. The saved snippet reads it on each repaint, so a color
 // chosen later shows at once, and a window is known without the sidebar (hidden or not).
@@ -1399,19 +1399,30 @@ export const register: Register = on => {
     )
   })
 
-  // Desktop: a band above the prompt only when there is something to do (see refreshOffer),
-  // and always the 1-pixel picture whose label hands desktop/tint.js the chosen colors.
+  // Desktop: the 1-pixel picture whose label hands desktop/tint.js the chosen colors and this
+  // window's repo, in the footer beside the mode labels. Not above the prompt: the app wraps
+  // anything drawn there in an empty padded card, and a question card can replace that band.
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const native = await next(e)
+    if (e.surface !== 'desktop' || (await read($, isHidden))) return native
+    const live = await read($, liveColors)
+    if (live === null) return native
+    const { Box, Svg } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="row" alignItems="center">
+        {native}
+        <Svg key="tint-colors" source={LIVE_SVG} alt={live} width={1} height={1} />
+      </Box>
+    )
+  })
+
+  // Desktop: a band above the prompt only when there is something to do (see refreshOffer).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, isHidden))) return next(e)
-    const { Box, Text, Button, Markdown, Svg } = $.ui.resolve(e)
-    const live = await read($, liveColors)
-    const tag = live === null ? null : <Svg key="tint-colors" source={LIVE_SVG} alt={live} width={1} height={1} />
     const offer = await read($, desktopOffer)
     const fresh = await read($, newVersion)
-    if (offer === null && fresh === null) {
-      const native = await next(e)
-      return tag === null ? native : <Box flexDirection="column">{native}{tag}</Box>
-    }
+    if (offer === null && fresh === null) return next(e)
+    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
     const settle = async (change: DesktopState, note?: string) => {
       await saveDesktopState($, change)
       await update($, desktopOffer, () => null)
@@ -1507,7 +1518,6 @@ export const register: Register = on => {
             </Box>
           </Box>
         )}
-        {tag}
       </Box>
     )
   })

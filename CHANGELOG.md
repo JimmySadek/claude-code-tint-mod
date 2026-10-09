@@ -2,6 +2,14 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.7.2] - 2026-10-09
+
+### Fixed
+- **No more empty gray box above the message box.** The desktop app wraps anything a mod draws above the prompt in a padded card, so the 1-pixel colors label (1.7.0) showed as an empty box. The label now sits in the footer beside the mode labels, where the app adds no card and a question card cannot hide it.
+
+### Changed
+- **README:** a second app window (its own red, yellow and green buttons) runs the desktop script on its own: press **⌥⌘I** in that window and run **tint** there too.
+
 ## [1.7.1] - 2026-10-09
 
 ### Fixed

@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.4.0] - 2026-10-09
+
+### Added
+- **One click to color the whole desktop app.** In the desktop app, a band above the message box asks "Color the whole app too?". **Color the app** runs the same install as `/mod_tint desktop go` (Developer Mode included); **No thanks** keeps the band away in every window, and `/mod_tint desktop` still works any time.
+- **A reminder after each app start.** Restarting the app turns the colors off, so the band shows how to turn them on (⌥⌘I, right-click `tint`, Run). **Done** hides it in every window until the app starts again.
+
+### Changed
+- **Desktop updates are a band, not a one-time notice.** When the saved snippet is an older script, the band offers **Update** or **Later** (Later waits for the next version).
+
 ## [1.3.2] - 2026-10-09
 
 ### Fixed

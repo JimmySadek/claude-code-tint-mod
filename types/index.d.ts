@@ -13,6 +13,7 @@ declare module 'claude-code' {
       hasFrame: boolean
       isTitling: boolean
       prompts: number
+      desktopOffer: 'install' | 'update' | 'remind' | null
     }
   }
 }

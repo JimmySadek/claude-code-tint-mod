@@ -100,6 +100,9 @@ const isHidden = atom({ plugin: 'tint', key: 'isHidden' } as const, false)
 const hasFrame = atom({ plugin: 'tint', key: 'hasFrame' } as const, false)
 const isTitling = atom({ plugin: 'tint', key: 'isTitling' } as const, true)
 const prompts = atom({ plugin: 'tint', key: 'prompts' } as const, 0)
+// What the band above the desktop prompt offers: install the desktop colors, update them,
+// or remind how to turn them on after an app start. null shows nothing.
+const desktopOffer = atom({ plugin: 'tint', key: 'desktopOffer' } as const, null)
 
 type Window = { repo: string; n: number; seen: number; ended?: boolean }
 // manualColor: set by /mod_tint color, so a new emoji does not replace it.
@@ -391,20 +394,48 @@ async function savedSnippet($: EngineInterface): Promise<string | null> {
   }
 }
 
-// In the desktop app: when the saved snippet is older than the mod's script, say so once per
-// script version. Repo colors are left out of the comparison: the script learns them itself.
-async function desktopNotice($: EngineInterface): Promise<void> {
+// What the person answered in the desktop band, shared by every window (desktop.json):
+// declined the install, put off one script version, or turned the colors on after one app start.
+type DesktopState = { isInstallDeclined?: boolean; updateLater?: string; doneFor?: string }
+
+async function desktopState($: EngineInterface): Promise<DesktopState> {
+  return (await readJson<DesktopState>($, `${await folder($)}/${SNIPPET_STATE}`)) ?? {}
+}
+
+async function saveDesktopState($: EngineInterface, change: DesktopState): Promise<void> {
+  const dir = await folder($)
+  await $.process.run(['mkdir', '-p', dir]).catch(() => null)
+  await $.fs.write(`${dir}/${SNIPPET_STATE}`, JSON.stringify({ ...(await desktopState($)), ...change }))
+}
+
+// When the desktop app last started, as `ps` prints it, or null when it is not running.
+// A new value means the page reloaded, so the tint is off until it is run again.
+async function appStarted($: EngineInterface): Promise<string | null> {
+  const out = await $.process.run(['ps', '-axo', 'lstart=,comm=']).catch(() => null)
+  const line = out?.stdout.split('\n').find(row => row.trimEnd().endsWith('/Claude.app/Contents/MacOS/Claude'))
+  return line ? line.slice(0, 24).trim() : null
+}
+
+// A mark for the mod's script, repo colors left out: the script learns them itself.
+const scriptMark = (script: string) => hash(script.replace(REPOS_PART, ''), 7).toString(16)
+
+// In the desktop app, what the band above the prompt offers: the install (no snippet yet),
+// the update (the saved snippet is an older script), or once per app start how to turn the
+// colors on. Each stays away once answered, for every window.
+async function refreshOffer($: EngineInterface): Promise<void> {
   if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return
   const saved = await savedSnippet($)
   const script = await tintScript($)
-  if (saved === null || script === null) return
-  const plain = (text: string) => text.replace(REPOS_PART, '')
-  if (plain(saved) === plain(script)) return
-  const mark = hash(plain(script), 7).toString(16)
-  const statePath = `${await folder($)}/${SNIPPET_STATE}`
-  if ((await readJson<{ notified?: string }>($, statePath))?.notified === mark) return
-  await $.fs.write(statePath, JSON.stringify({ notified: mark }))
-  $.ui.toast('window-tint: the desktop tint has an update. /mod_tint desktop go installs it.')
+  const state = await desktopState($)
+  let offer: 'install' | 'update' | 'remind' | null = null
+  if (script === null) offer = null
+  else if (saved === null) offer = state.isInstallDeclined ? null : 'install'
+  else if (scriptMark(saved) !== scriptMark(script) && state.updateLater !== scriptMark(script)) offer = 'update'
+  else {
+    const started = await appStarted($)
+    offer = started !== null && state.doneFor !== started ? 'remind' : null
+  }
+  await update($, desktopOffer, () => offer)
 }
 
 async function readChoices($: EngineInterface): Promise<Record<string, RepoChoice>> {
@@ -739,6 +770,34 @@ async function pickOnFirstPrompt($: EngineInterface): Promise<void> {
   void pickIdentity($, key).catch(() => null)
 }
 
+// Saves the tint as the desktop app's DevTools snippet. 'go' opens Terminal to run the helper
+// (it quits the app, backs up its settings, saves the snippet, turns on Developer Mode, opens
+// the app again); 'line', or when Terminal cannot be opened, copies the Terminal line instead.
+async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{ text: string; isOpened: boolean }> {
+  const home = (await $.env.get('HOME')) ?? ''
+  const prefs = `${home}/${APP_SUPPORT}/Preferences`
+  const devSettings = `${home}/${APP_SUPPORT}/developer_settings.json`
+  const script = await tintScript($)
+  if (script === null) return { text: `window-tint: could not read ${$.plugin.root}/desktop/tint.js.`, isOpened: false }
+  const dir = await folder($)
+  await $.process.run(['mkdir', '-p', dir])
+  await $.fs.write(`${dir}/${SNIPPET_FILE}`, script)
+  const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
+  const line = ['/usr/bin/python3', quote(`${$.plugin.root}/${SNIPPET_HELPER}`), '--prefs', quote(prefs),
+    '--snippet', quote(`${dir}/${SNIPPET_FILE}`), '--backup', quote(`${dir}/${SNIPPET_BACKUP}`),
+    '--dev-mode', quote(devSettings), '--restart'].join(' ')
+  if (how === 'go') {
+    // A .command file opens in Terminal and runs there, in plain sight; it ends when done.
+    const runner = `${dir}/${SNIPPET_RUNNER}`
+    await $.fs.write(runner, `#!/bin/sh\n# window-tint: saves the desktop tint snippet (from /mod_tint desktop go)\n${line}\n`)
+    const isReady = (await $.process.run(['chmod', '755', runner]).catch(() => null))?.exitCode === 0
+    const opened = isReady ? await $.process.run(['open', '-a', 'Terminal', runner]).catch(() => null) : null
+    if (opened?.exitCode === 0) return { text: desktopStarted(null, true), isOpened: true }
+  }
+  const copied = await $.ui.copy({ text: line })
+  return { text: desktopStarted(copied.isCopied ? null : line, false), isOpened: false }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -752,7 +811,7 @@ export const register: Register = on => {
       const key = await repoKey($)
       const now = await $.clock.now()
       void pruneWindows($, now).catch(() => null)
-      void desktopNotice($).catch(() => null)
+      void refreshOffer($).catch(() => null)
       void rememberFolder($, key).catch(() => null)
       const n = await claimNumber($, key, await $.session.id(), now)
       await update($, repo, () => key)
@@ -781,6 +840,7 @@ export const register: Register = on => {
         await heartbeat($)
         await loadChoice($, key)
         await refreshStatus($)
+        await refreshOffer($).catch(() => null)
       })
     } catch (error) {
       $.ui.toast(`window-tint: ${String(error)}`)
@@ -882,25 +942,7 @@ export const register: Register = on => {
         if (saved !== null && current !== null && devMode?.allowDevTools === true && plain(saved) === plain(current)) return { text: DESKTOP_RUN }
         return { text: desktopPlan(devMode?.allowDevTools === true, saved !== null) }
       }
-      const script = await tintScript($)
-      if (script === null) return { text: `window-tint: could not read ${$.plugin.root}/desktop/tint.js.` }
-      const dir = await folder($)
-      await $.process.run(['mkdir', '-p', dir])
-      await $.fs.write(`${dir}/${SNIPPET_FILE}`, script)
-      const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
-      const line = ['/usr/bin/python3', quote(`${$.plugin.root}/${SNIPPET_HELPER}`), '--prefs', quote(prefs),
-        '--snippet', quote(`${dir}/${SNIPPET_FILE}`), '--backup', quote(`${dir}/${SNIPPET_BACKUP}`),
-        '--dev-mode', quote(devSettings), '--restart'].join(' ')
-      if (how === 'go') {
-        // A .command file opens in Terminal and runs there, in plain sight; it ends when done.
-        const runner = `${dir}/${SNIPPET_RUNNER}`
-        await $.fs.write(runner, `#!/bin/sh\n# window-tint: saves the desktop tint snippet (from /mod_tint desktop go)\n${line}\n`)
-        const isReady = (await $.process.run(['chmod', '755', runner]).catch(() => null))?.exitCode === 0
-        const opened = isReady ? await $.process.run(['open', '-a', 'Terminal', runner]).catch(() => null) : null
-        if (opened?.exitCode === 0) return { text: desktopStarted(null, true) }
-      }
-      const copied = await $.ui.copy({ text: line })
-      return { text: desktopStarted(copied.isCopied ? null : line, false) }
+      return { text: (await installDesktop($, how)).text }
     }
     if (verb === 'css') {
       const isScan = rest.toLowerCase() === 'scan'
@@ -992,6 +1034,45 @@ export const register: Register = on => {
           {label}  <Text color={shade(tone, isLight(tone) ? -0.4 : 0.45)}>{GLYPHS[kind].repeat(room)}</Text>
         </Text>
         <Button key="next" label="Next color" plain onPress={() => nextColor($, key)} />
+      </Box>
+    )
+  })
+
+  // Desktop: a band above the prompt only when there is something to do (see refreshOffer).
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, isHidden))) return next(e)
+    const offer = await read($, desktopOffer)
+    if (offer === null) return next(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
+    const settle = async (change: DesktopState, note?: string) => {
+      await saveDesktopState($, change)
+      await update($, desktopOffer, () => null)
+      if (note) $.ui.toast(note)
+    }
+    const install = async () => {
+      await update($, desktopOffer, () => null)
+      const { isOpened } = await installDesktop($, 'go')
+      $.ui.toast(isOpened
+        ? 'tint: Terminal is opening. Claude quits and comes back in a few seconds.'
+        : 'tint: Terminal line copied. Open Terminal, paste with ⌘V, press Enter.')
+    }
+    const later = async () => settle({ updateLater: scriptMark((await tintScript($)) ?? '') })
+    const done = async () => settle({ doneFor: (await appStarted($)) ?? undefined })
+    const say = {
+      install: '🎨 Color the whole app too? Claude restarts once to set it up.',
+      update: '🎨 New desktop colors are ready. Claude restarts once to install them.',
+      remind: '🎨 Turn on the colors: press ⌥⌘I, then right-click tint → Run.',
+    }[offer]
+    return (
+      <Box paddingX={1} justifyContent="space-between" alignItems="center">
+        <Text wrap="wrap">{say}</Text>
+        <Box gap={1}>
+          {offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={install} />}
+          {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
+          {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
+          {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
+          {offer === 'remind' && <Button key="desktop-done" label="Done" onPress={done} />}
+        </Box>
       </Box>
     )
   })

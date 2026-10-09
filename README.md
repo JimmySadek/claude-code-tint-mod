@@ -40,13 +40,15 @@ A mod can draw inside the conversation, but not the app around it. For the full 
 
 **Once: install it.**
 
-1. In Claude Code, type `/mod_tint desktop`. It tells you what will happen. Nothing changes yet.
-2. Type `/mod_tint desktop go`. **Terminal** opens and Claude quits for a few seconds. Terminal backs up the app's settings, saves the script as the DevTools snippet `tint`, turns on the app's **Developer Mode** if it is off, and opens Claude again.
+1. In the desktop app, a band above the message box asks **"Color the whole app too?"**. Click **Color the app**. (Or type `/mod_tint desktop go`.)
+2. **Terminal** opens and Claude quits for a few seconds. Terminal backs up the app's settings, saves the script as the DevTools snippet `tint`, turns on the app's **Developer Mode** if it is off, and opens Claude again.
 3. Turn on the colors: press **⌥⌘I** (Option + Command + I). A small tools window opens (the app's DevTools). In its list, right-click `tint` and choose **Run**. Close the tools window with **⌥⌘I** again.
 
-**After each app start:** the same three clicks. Forgot them? Type `/mod_tint desktop`: once the tint is installed, it shows them in plain words. The tools window only changes the colors you see; nothing is sent and nothing is saved.
+**After each app start:** the band reminds you of the same three clicks. Click **Done** and it leaves every window until the next app start. The tools window only changes the colors you see; nothing is sent and nothing is saved.
 
-New repositories are picked up by themselves: the script reads the repository names in the sidebar and the emoji their threads start with. When a mod update changes the script, Claude Code tells you once; run `/mod_tint desktop go` again.
+Not now? Click **No thanks** and the band stays away; `/mod_tint desktop` sets it up any time.
+
+New repositories are picked up by themselves: the script reads the repository names in the sidebar and the emoji their threads start with. When a mod update changes the script, the band offers **Update** (or **Later**, until the next version).
 
 > **Why not fully automatic?** The desktop app doesn't load outside scripts. It refuses to start with debugging switches and its code is sealed, which protects your signed-in account. A saved snippet is the safe way in. The app also rewrites its settings while it runs, which is why the install quits it first.
 
@@ -103,7 +105,7 @@ claude plugin marketplace update claude-code-tint-mod
 claude plugin update tint@claude-code-tint-mod
 ```
 
-Then start a new session. If the desktop script changed, Claude Code tells you once: run `/mod_tint desktop go`. How versions work: [docs/releasing.md](docs/releasing.md).
+Then start a new session. If the desktop script changed, the band above the message box offers **Update**. How versions work: [docs/releasing.md](docs/releasing.md).
 
 ## Uninstall
 

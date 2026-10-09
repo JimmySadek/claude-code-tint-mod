@@ -77,8 +77,8 @@ const prefsWith = (snippet?: string) => JSON.stringify({
   } } },
 })
 
-function desktopWorld(on: Parameters<Parameters<typeof test>[1]>[1], files: Map<string, string>, openFails = false) {
-  const out = { copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][] }
+function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1], files: Map<string, string>, openFails = false) {
+  const out = { copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][], ps: '' }
   mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
   on('session.id', () => ({ value: 'me' }))
@@ -98,7 +98,7 @@ function desktopWorld(on: Parameters<Parameters<typeof test>[1]>[1], files: Map<
   on('model.complete', () => ({ deny: 'offline' }))
   on('process.run', ($, e) => {
     out.runs.push([...e.argv])
-    return { value: { exitCode: openFails && e.argv[0] === 'open' ? 1 : 0, stdout: '', stderr: '' } } as never
+    return { value: { exitCode: openFails && e.argv[0] === 'open' ? 1 : 0, stdout: e.argv[0] === 'ps' ? out.ps : '', stderr: '' } } as never
   })
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
   on('ui.status', () => ({ value: undefined }))
@@ -183,20 +183,90 @@ test('desktop: no desktop app here, so /mod_tint desktop says so and changes not
   expect(files.has(`${DIR}/desktop-snippet.js`)).toBe(false)
 })
 
-test('desktop: an older saved snippet is announced once; repo colors alone never count', async ($, on) => {
+const BAND = {
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+} as const
+const START = { cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false } as const
+const APP_ROW = (when: string) => `${when}     /Applications/Claude.app/Contents/MacOS/Claude\n`
+
+test('desktop band: offers the install once; No thanks keeps it away in every window', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith()]])
+  const out = desktopWorld(on, files)
+  await $.session.start(START)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /Color the whole app too/ })).toBeDefined()
+  await ui.press({ key: 'desktop-no' })
+  expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).isInstallDeclined).toBe(true)
+  expect(await ui.find({ key: 'desktop-install' })).toBeUndefined()
+  await ui.unmount()
+  // Another window: still away. /mod_tint desktop stays there for later.
+  await $.session.start(START)
+  const other = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await other.find({ key: 'desktop-install' })).toBeUndefined()
+  await other.unmount()
+  expect(out.toasts).toContain('tint: OK. /mod_tint desktop sets it up any time.')
+})
+
+test('desktop band: Color the app runs the same install as /mod_tint desktop go', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith()]])
+  const out = desktopWorld(on, files)
+  await $.session.start(START)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  await ui.press({ key: 'desktop-install' })
+  expect(out.runs.some(argv => argv[0] === 'open' && argv.includes('Terminal'))).toBe(true)
+  expect(files.get(`${DIR}/install-desktop.command`)).toContain('--restart')
+  expect(out.toasts).toContain('tint: Terminal is opening. Claude quits and comes back in a few seconds.')
+  await ui.unmount()
+})
+
+test('desktop band: an older snippet offers the update; repo colors alone never count; Later waits for the next version', async ($, on) => {
   const files = new Map<string, string>([
     [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
-    // Same script, other repo colors: not an update.
     [`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{"old":["#000000","⬛"]}/*REPOS*/ // tint')],
   ])
-  const out = desktopWorld(on, files)
-  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
-  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
-  expect(out.toasts.filter(t => t.includes('desktop tint'))).toEqual([])
+  desktopWorld(on, files)
+  await $.session.start(START)
+  const same = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await same.find({ key: 'desktop-update' })).toBeUndefined()
+  await same.unmount()
 
-  // An older script: one notice, not again for the same version.
   files.set(`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{}/*REPOS*/ // tint v0'))
-  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
-  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: false })
-  expect(out.toasts.filter(t => t.includes('desktop tint'))).toEqual(['window-tint: the desktop tint has an update. /mod_tint desktop go installs it.'])
+  await $.session.start(START)
+  const older = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await older.find({ type: 'Text', text: /New desktop colors are ready/ })).toBeDefined()
+  await older.press({ key: 'desktop-later' })
+  await older.unmount()
+  await $.session.start(START)
+  const after = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await after.find({ key: 'desktop-update' })).toBeUndefined()
+  await after.unmount()
+})
+
+test('desktop band: once per app start, how to turn the colors on; Done until the app starts again', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
+  const out = desktopWorld(on, files)
+  out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
+  await $.session.start(START)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ type: 'Text', text: /press ⌥⌘I, then right-click tint → Run/ })).toBeDefined()
+  await ui.press({ key: 'desktop-done' })
+  expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
+  await ui.unmount()
+
+  await $.session.start(START)
+  const again = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await again.find({ key: 'desktop-done' })).toBeUndefined()
+  await again.unmount()
+
+  out.ps = APP_ROW('Fri Oct  9 09:00:00 2026')
+  await $.session.start(START)
+  const restarted = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await restarted.find({ key: 'desktop-done' })).toBeDefined()
+  await restarted.unmount()
+
+  // The terminal never shows the desktop band.
+  const term = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
+  expect(await term.find({ key: 'desktop-done' })).toBeUndefined()
+  await term.unmount()
 })

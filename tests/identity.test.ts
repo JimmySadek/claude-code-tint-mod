@@ -12,6 +12,8 @@ type World = {
   footer: () => string | undefined
   clock: ReturnType<typeof mock.clock>
   runs: string[][]
+  // What tint handed Claude as a prompt of its own (/mod_tint repick, a lone emoji...).
+  submitted: string[]
 }
 
 // One window of `repoName`; `reply` is what the background model call answers.
@@ -74,9 +76,15 @@ function setup(
     return { value: undefined }
   })
   on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('tool.register', ($, e) => ({ value: { tool: `mcp__tint__${e.name}` } }))
+  const submitted: string[] = []
+  on('prompt.submit', ($, e) => {
+    submitted.push(e.text)
+    return { text: e.text }
+  })
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('classic.UserPromptSubmit', () => ({}))
-  return { files, asked, footer: () => footer, clock, runs }
+  return { files, asked, footer: () => footer, clock, runs, submitted }
 }
 
 const saved = (world: World) => JSON.parse(world.files.get(`${DIR}/repos.json`)!)
@@ -176,7 +184,7 @@ test('a reply that is not one emoji and one hex color is refused', async ($, on)
   expect(saved(world)).toEqual({})
 })
 
-test('overrides: /mod_tint color #hex, icon and repick', async ($, on) => {
+test('overrides: /mod_tint color #hex and icon; each keeps the look before it, and undo goes back', async ($, on) => {
   const world = setup(on, 'matchday', '{"emoji":"⚽","color":"#E30613"}', { matchday: { icon: '🟩', color: 'green' } })
   await $.session.start({ cwd: '/work/matchday', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
@@ -185,22 +193,101 @@ test('overrides: /mod_tint color #hex, icon and repick', async ($, on) => {
 
   await $.command.run({ command: 'mod_tint', args: 'color #111827' } as never)
   await $.command.run({ command: 'mod_tint', args: 'icon 🏟️' } as never)
-  expect(saved(world).matchday).toEqual({ icon: '🏟️', color: '#111827', manualColor: true })
+  expect(saved(world).matchday).toEqual({
+    icon: '🏟️', color: '#111827', manualColor: true,
+    previous: { icon: '🟩', color: '#111827', manualColor: true },
+  })
   expect(await title($, 'Work')).toBe('🏟️1️⃣ Work')
 
-  // Repick replaces both, even the manual ones: by design.
-  const answer = await $.command.run({ command: 'mod_tint', args: 'repick' } as never)
-  expect(answer.text).toContain('⚽ #E30613')
-  expect(saved(world).matchday).toEqual({ icon: '⚽', color: '#E30613' })
-  expect(await title($, 'Work')).toBe('⚽1️⃣ Work')
+  // Undo goes one step back; a second undo swaps again.
+  const back = await $.command.run({ command: 'mod_tint', args: 'undo' } as never)
+  expect(back.text).toContain('🟩 · #111827')
+  expect(saved(world).matchday.icon).toBe('🟩')
+  expect(await title($, 'Work')).toBe('🟩1️⃣ Work')
+  await $.command.run({ command: 'mod_tint', args: 'undo' } as never)
+  expect(saved(world).matchday.icon).toBe('🏟️')
+  // No picker call and no prompt for Claude: these are clear commands.
+  expect(world.asked.length).toBe(0)
+  expect(world.submitted).toEqual([])
 })
 
-test('repick that fails keeps what was there', async ($, on) => {
-  const world = setup(on, 'matchday', null, { matchday: { icon: '⚽', color: '#E30613' } })
-  await $.session.start({ cwd: '/work/matchday', surface: 'desktop', isInteractive: true })
+test('repick: Claude is asked to offer a few fitting looks; nothing changes until one is chosen', async ($, on) => {
+  const world = setup(on, 'Claude-Labs', null, {
+    'Claude-Labs': { icon: '🧭', color: '#E82F32', previous: { icon: '🧪', color: '#259F3E' } },
+    'animation-lab': { icon: '🎞️', color: '#E8772E' },
+  })
+  await $.session.start({ cwd: '/work/Claude-Labs', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
   const answer = await $.command.run({ command: 'mod_tint', args: 'repick' } as never)
-  expect(answer.text).toContain('could not choose')
-  expect(saved(world).matchday).toEqual({ icon: '⚽', color: '#E30613' })
+  await world.clock.settle()
+  expect(answer.text).toBe('Claude will ask you what you want.')
+  expect(world.asked.length).toBe(0)
+  expect(saved(world)['Claude-Labs'].icon).toBe('🧭')
+
+  const prompt = world.submitted.at(-1)!
+  expect(prompt).toContain('"/mod_tint repick"')
+  expect(prompt).toContain('offer 3 new looks')
+  expect(prompt).toContain('🧭 · #E82F32 (red)')
+  expect(prompt).toContain('Look before the last change: 🧪 · #259F3E (green)')
+  expect(prompt).toContain('animation-lab: 🎞️ · #E8772E')
+  expect(prompt).toContain('AskUserQuestion')
+  expect(prompt).toContain('mcp__tint__set')
+})
+
+test('unclear words, a lone emoji or nothing at all go to Claude, never to a guess', async ($, on) => {
+  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧭', color: '#E82F32' } })
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  for (const args of ['🧪', 'go back', 'color blurple', '']) {
+    const answer = await $.command.run({ command: 'mod_tint', args } as never)
+    await world.clock.settle()
+    expect(answer.text).toBe('Claude will ask you what you want.')
+  }
+  expect(world.submitted.length).toBe(4)
+  expect(world.submitted[0]).toContain('"/mod_tint 🧪"')
+  expect(world.submitted[0]).toContain('A lone emoji most likely means a new emoji for the repository')
+  expect(world.submitted[3]).toContain('"/mod_tint"')
+  expect(world.submitted[3]).toContain('They did not say what to change')
+  // Nothing was applied: not the emoji, and not a window named "🧪".
+  expect(saved(world)['lab-notes']).toEqual({ icon: '🧭', color: '#E82F32' })
+  expect(await title($, 'Work')).toBe('🧭1️⃣ Work')
+})
+
+test('a scripted run that draws nowhere gets the help instead of a prompt for Claude', async ($, on) => {
+  const world = setup(on, 'scratch', null, {}, undefined, [])
+  await $.session.start({ cwd: '/work/scratch', surface: null, isInteractive: false })
+  const answer = await $.command.run({ command: 'mod_tint', args: '🧪' } as never)
+  expect(answer.text).toContain('| Command | What it does |')
+  expect(world.submitted).toEqual([])
+})
+
+test('the set tool applies what the person chose: emoji with its measured color, window name, undo', async ($, on) => {
+  const world = setup(on, 'Claude-Labs', null, { 'Claude-Labs': { icon: '🧭', color: '#E82F32' } }, { '🧪': GREEN })
+  await $.session.start({ cwd: '/work/Claude-Labs', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+
+  const set = (input: object) => $.tool.call({ tool: 'mcp__tint__set', ...input } as never)
+  const picked = await set({ icon: '🧪' })
+  expect(String(picked.result)).toContain('Claude-Labs is now 🧪 · #259F3E (green)')
+  expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' } })
+  expect(await title($, 'Work')).toBe('🧪1️⃣ Work')
+
+  await set({ name: 'Mods' })
+  expect(await title($, 'Work')).toBe('🧪1️⃣ Mods')
+  await set({ name: '' })
+  expect(await title($, 'Work')).toBe('🧪1️⃣ Work')
+
+  await set({ undo: true })
+  expect(saved(world)['Claude-Labs'].icon).toBe('🧭')
+
+  // A color the person chose is theirs: it stays when the emoji changes later.
+  await set({ color: 'teal' })
+  await set({ icon: '🧪' })
+  expect(saved(world)['Claude-Labs']).toMatchObject({ icon: '🧪', color: 'teal', manualColor: true })
+
+  // Bad input is refused, and nothing changes.
+  expect((await set({ color: 'blurple' })).deny).toContain('#RRGGBB')
+  expect(saved(world)['Claude-Labs'].color).toBe('teal')
 })
 
 test('title migration: old square, older icon-and-divider and new emoji prefixes never double up', async ($, on) => {
@@ -286,7 +373,7 @@ test('fallback: no helper (not macOS) keeps Claude\'s color and caches nothing',
   expect(world.files.has(`${DIR}/emoji-colors.json`)).toBe(false)
 })
 
-test('manual color wins over the emoji; repick measures again and replaces it', async ($, on) => {
+test('manual color wins over the emoji; without one, a new emoji brings its color', async ($, on) => {
   const world = setup(on, 'lab-notes', '{"emoji":"🧪","color":"#D97706"}', { 'lab-notes': { icon: '📐', color: '#8298B0' } }, {
     '🧪': GREEN,
   })
@@ -296,17 +383,11 @@ test('manual color wins over the emoji; repick measures again and replaces it', 
   // /mod_tint color is yours: a new emoji afterwards leaves it alone.
   await $.command.run({ command: 'mod_tint', args: 'color #111827' } as never)
   await $.command.run({ command: 'mod_tint', args: 'icon 🧪' } as never)
-  expect(saved(world)['lab-notes']).toEqual({ icon: '🧪', color: '#111827', manualColor: true })
+  expect(saved(world)['lab-notes']).toMatchObject({ icon: '🧪', color: '#111827', manualColor: true })
 
   // Without a manual color, a new emoji brings its own color.
   await $.command.run({ command: 'mod_tint', args: 'reset' } as never)
   await $.command.run({ command: 'mod_tint', args: 'icon 🧪' } as never)
   expect(saved(world)['lab-notes'].color).toBe('#259F3E')
 
-  // Repick runs the helper again even though 🧪 is cached, and clears the manual flag.
-  await $.command.run({ command: 'mod_tint', args: 'color #111827' } as never)
-  const before = world.runs.filter(argv => argv[0]!.endsWith('emoji-color-v1')).length
-  await $.command.run({ command: 'mod_tint', args: 'repick' } as never)
-  expect(world.runs.filter(argv => argv[0]!.endsWith('emoji-color-v1')).length).toBe(before + 1)
-  expect(saved(world)['lab-notes']).toEqual({ icon: '🧪', color: '#259F3E' })
 })

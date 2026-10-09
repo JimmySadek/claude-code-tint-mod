@@ -2,6 +2,17 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.6.0] - 2026-10-09
+
+### Changed
+- **Say it your way; Claude asks.** `/mod_tint` alone, a lone emoji, a typo or plain words (`/mod_tint go back`, `/mod_tint make it green`) no longer guess. Claude works out what you most likely mean and asks with a few choices (AskUserQuestion), your likely answer first. Clear commands (`icon 🧪`, `color teal`, `name Backend`...) still apply at once. Before, `/mod_tint 🧪` named the window "🧪", which nobody meant.
+- **Repick lets you choose.** It used to ask a small background model for one emoji from the repo's name, file names and the first lines of its README, then apply it unseen. A placeholder README gave it almost nothing (one repo got 🧭 because it has a `MAP.md`). Now Claude in your window looks at what the repo is really for and offers 3 different emoji, plus keeping the current one.
+- `/mod_tint help` shows the command list (`/mod_tint` alone now asks you).
+
+### Added
+- **`/mod_tint undo`**: back to the emoji and color before the last change; again to swap back. The earlier look is saved in `repos.json` as `previous`.
+- **A tool for Claude, `mcp__tint__set`**, so it applies what you chose (emoji, color, window name, hide, titles, border, pattern, undo) without touching tint's files.
+
 ## [1.5.1] - 2026-10-09
 
 ### Fixed

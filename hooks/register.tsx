@@ -115,11 +115,18 @@ const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
 type Window = { repo: string; n: number; seen: number; ended?: boolean }
 // manualColor: set by /mod_tint color, so a new emoji does not replace it.
 // folders: other names the app shows for this repo (a clone or worktree folder), for /mod_tint css.
-type RepoChoice = { color?: string; icon?: string; pattern?: string; frame?: boolean; manualColor?: boolean; folders?: string[] }
+// previous: the look before the last emoji or color change, so "go back" is one step.
+type Look = { icon?: string; color?: string; manualColor?: boolean }
+type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look }
+
+// The tool Claude calls to apply what the person chose (see askClaude).
+const SET_TOOL = 'mcp__tint__set'
 
 // The help, as Markdown (a command's answer is drawn as Markdown): three short tables.
 const USAGE = [
   'Tell your windows apart: every repository has one emoji (picked once by Claude) and a color taken from it. Each window gets a number and its own shade.',
+  '',
+  '**Easiest:** type `/mod_tint` alone, or say what you want in your own words (`/mod_tint new emoji`, `/mod_tint 🧪`, `/mod_tint go back`). Claude works out what you mean and asks you with a few choices.',
   '',
   '**This window**',
   '',
@@ -135,7 +142,8 @@ const USAGE = [
   '|---|---|',
   '| `/mod_tint icon 🧪` | Choose the emoji. The color follows it unless you set one. |',
   '| `/mod_tint color #7C3AED` | Choose the color: a `#hex` or ' + NAMES.join(', ') + '. `/mod_tint color` alone tries the next one. |',
-  '| `/mod_tint repick` | Ask Claude for a new emoji; its color is measured again. |',
+  '| `/mod_tint repick` | Claude suggests a few new emoji that fit the repository; you pick one. |',
+  '| `/mod_tint undo` | Go back to the emoji and color before the last change. |',
   '| `/mod_tint pattern waves` | Terminal strip pattern: ' + PATTERNS.join(', ') + '. |',
   '| `/mod_tint frame on` · `off` | A colored border around your own messages (off at first). |',
   '| `/mod_tint reset` | Forget this repository\'s choices; Claude picks again. |',
@@ -694,11 +702,11 @@ async function compileHelper($: EngineInterface, binary: string): Promise<boolea
 
 // The emoji's main color as macOS draws it, or null when it is dull, has no
 // color, or cannot be measured here (not macOS, no swiftc). Measured colors,
-// dull ones included, are kept per emoji; `fresh` measures again.
-async function emojiColor($: EngineInterface, emoji: string, fresh = false): Promise<string | null> {
+// dull ones included, are kept per emoji.
+async function emojiColor($: EngineInterface, emoji: string): Promise<string | null> {
   const cachePath = `${await folder($)}/${EMOJI_COLORS}`
   const cache = (await readJson<Record<string, string | null>>($, cachePath)) ?? {}
-  if (!fresh && emoji in cache) return cache[emoji] ?? null
+  if (emoji in cache) return cache[emoji] ?? null
   const binary = `${await folder($)}/${HELPER_BINARY}`
   try {
     let run = await $.process.run([binary, emoji], { timeoutMs: 10_000 }).catch(() => null)
@@ -723,13 +731,14 @@ const PICK_SYSTEM = [
   'Reply with JSON only, nothing else, in this shape: {"about": "<a few words>", "emoji": "<one emoji>", "color": "#RRGGBB"}',
 ].join('\n')
 
-// Asks Claude, once, for this repo's emoji and exact color, and saves them. A
-// manual choice already saved is kept unless `again` (/mod_tint repick).
+// Asks Claude, once and in the background, for this repo's emoji and exact color,
+// and saves them; a manual choice already saved is kept. A new look later is
+// /mod_tint repick, where Claude asks the person (askClaude), never this.
 // Resolves what was saved, or null when the call failed and the hash stays.
-async function pickIdentity($: EngineInterface, key: string, again = false): Promise<RepoChoice | null> {
+async function pickIdentity($: EngineInterface, key: string): Promise<RepoChoice | null> {
   const all = await readChoices($)
   const mine = all[key] ?? {}
-  if (!again && mine.icon && mine.color) return null
+  if (mine.icon && mine.color) return null
   const others = Object.entries(all)
     .filter(([other, choice]) => other !== key && (choice.icon || choice.color))
     .map(([other, choice]) => `- ${other}: ${choice.icon ?? '(no emoji)'} ${choice.color ? fill(choice.color) : '(no color)'}`)
@@ -754,14 +763,101 @@ async function pickIdentity($: EngineInterface, key: string, again = false): Pro
   const picked = reply?.isAnswered ? parseIdentity(reply.text) : null
   if (!picked) return null
   // The color comes from the emoji when it is vivid, else it is Claude's own.
-  const emoji = again ? picked.icon : mine.icon ?? picked.icon
-  const derived = (await emojiColor($, emoji, again)) ?? picked.color
-  const change: RepoChoice = again
-    ? { icon: emoji, color: derived, manualColor: undefined }
-    : { icon: emoji, color: mine.color ?? derived }
+  const emoji = mine.icon ?? picked.icon
+  const derived = (await emojiColor($, emoji)) ?? picked.color
+  const change: RepoChoice = { icon: emoji, color: mine.color ?? derived }
   await saveChoice($, key, change)
   await loadChoice($, key)
   return change
+}
+
+// A new emoji's color: measured from the emoji, unless the person chose the color.
+async function iconColor($: EngineInterface, key: string, emoji: string): Promise<string | null> {
+  return (await readChoices($))[key]?.manualColor === true ? null : await emojiColor($, emoji)
+}
+
+// A new emoji or color for the repo; the look before it is kept as `previous`.
+async function saveLook($: EngineInterface, key: string, change: Look): Promise<void> {
+  const mine = (await readChoices($))[key] ?? {}
+  const isNew = (change.icon !== undefined && change.icon !== mine.icon) ||
+    (change.color !== undefined && change.color !== mine.color)
+  const previous: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
+  await saveChoice($, key, isNew && (mine.icon || mine.color) ? { ...change, previous } : change)
+  await loadChoice($, key)
+}
+
+// Back to the look before the last change; a second undo swaps them again.
+// Resolves the look now shown, or null when there is no earlier one.
+async function undoLook($: EngineInterface, key: string): Promise<Look | null> {
+  const mine = (await readChoices($))[key] ?? {}
+  const back = mine.previous
+  if (!back) return null
+  const now: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
+  await saveChoice($, key, { icon: back.icon, color: back.color, manualColor: back.manualColor, previous: now })
+  await loadChoice($, key)
+  return back
+}
+
+// One line per look, the color also in words, for Claude and for answers.
+const lookText = (look: Look) =>
+  `${look.icon ?? 'no emoji'} · ${look.color ? `${fill(look.color)} (${nearestName(look.color)})` : 'no color'}`
+
+// What Claude reads before it asks: this repo's look, the one before it, this window, other repos.
+async function lookNow($: EngineInterface, key: string): Promise<string> {
+  const all = await readChoices($)
+  const mine = all[key] ?? {}
+  const own = await read($, name)
+  const others = Object.entries(all)
+    .filter(([other, choice]) => other !== key && (choice.icon || choice.color))
+    .map(([other, choice]) => `  - ${other}: ${lookText(choice)}`)
+  return [
+    `Repository: ${key}`,
+    `- Its look, shared by every window of it: ${lookText({ ...mine, color: (await read($, color)) ?? autoColor(key) })}${mine.manualColor ? ' (color chosen by the person)' : ''}`,
+    `- Look before the last change: ${mine.previous ? lookText(mine.previous) : 'none saved'}`,
+    `- This window: number ${(await read($, number)) ?? '?'}, name ${own ? `"${own}"` : 'none'}, tint ${(await read($, isHidden)) ? 'hidden' : 'shown'}, border around the person's messages ${(await read($, hasFrame)) ? 'on' : 'off'}, title upkeep ${(await read($, isTitling)) ? 'on' : 'off'}`,
+    others.length ? `- Other repositories (keep clearly different from these):\n${others.join('\n')}` : '- No other repository has a look yet.',
+  ].join('\n')
+}
+
+const ASK_REPICK = [
+  'They want a new emoji for this repository. First get a real sense of what it is for: its name, its README, a map or index file, and what this conversation shows (a quick look, a few files at most; a placeholder README says little).',
+  'Then offer 3 new looks that fit that purpose, each a different idea, none of them the current emoji or one another repository uses, plus a last option to keep the current look.',
+].join(' ')
+const ASK_INTENT = [
+  'Work out what they most likely want from those words and the looks below.',
+  'A lone emoji most likely means a new emoji for the repository; a color word, a new color; "back", "undo" or "old", the look before the last change; other words, a name for this window.',
+  'When the words could mean two things, offer both.',
+].join(' ')
+const ASK_OPEN = [
+  'They did not say what to change. Offer the 3 or 4 changes most likely wanted now, for example:',
+  'a new emoji for the repository, the look before the last change (when there is one), a name for this window, or hiding the tint in this window.',
+  'When the chosen change needs a second choice (which emoji), ask that next.',
+].join(' ')
+const ASK_HOW = [
+  'How to answer:',
+  '1. Ask with AskUserQuestion, one question with 2 to 4 options, your best guess first with "(Recommended)" at the end of its label. Show the emoji in each label and say the color in words ("🧪 Test tube · green"), with one short line in the description on why it fits. Never ask the person to type a command or a hex code; a detail you lack (a window name) they type under Other.',
+  `2. Apply the answer with the tool ${SET_TOOL} (load it with ToolSearch "select:${SET_TOOL}" first if it is deferred). For a new emoji pass only \`icon\`: tint takes the color from the emoji as macOS draws it. Pass \`color\` only when the person chose a color. Never edit tint's files yourself.`,
+  '3. If they dismiss the question or keep what they have, change nothing.',
+  '4. End with one short line saying what changed.',
+].join('\n')
+
+// /mod_tint with no clear command: Claude works out what the person means and asks
+// with a few choices (AskUserQuestion), then applies the answer through SET_TOOL.
+// False where no model turn can follow (a scripted run draws nowhere).
+async function askClaude($: EngineInterface, key: string, typed: string, task: 'repick' | 'intent'): Promise<boolean> {
+  if ((await $.session.surfaces().catch((): readonly RenderSurface[] => [])).length === 0) return false
+  const text = [
+    `[tint] The person typed "/mod_tint${typed ? ` ${typed}` : ''}" in this window.`,
+    task === 'repick' ? ASK_REPICK : typed ? ASK_INTENT : ASK_OPEN,
+    '',
+    await lookNow($, key),
+    '',
+    ASK_HOW,
+  ].join('\n')
+  // The engine refuses a prompt from inside the command's own hook (it would wait on
+  // the turn that hook holds), so it goes right after, as a turn of its own.
+  $.clock.after(0, () => void $.prompt.submit({ text }).catch(() => undefined))
+  return true
 }
 
 async function nextColor($: EngineInterface, key: string): Promise<void> {
@@ -942,6 +1038,27 @@ export const register: Register = on => {
       argumentHint: 'name <text> | color <#hex> | icon <emoji> | repick | pattern <kind> | titles off|on | frame on|off | desktop [go|line] | css [scan] | update | off | on | reset',
       immediate: true,
     })
+    await $.tool.register({
+      name: 'set',
+      description: [
+        'Changes how tint marks this repository and this window, after the person chose it (ask first with AskUserQuestion).',
+        'icon and color are shared by every window of the repository; a new icon alone brings its own color, measured from the emoji.',
+        'name, hidden and titles are for this window only. undo goes back to the look before the last change.',
+      ].join(' '),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          icon: { type: 'string', description: 'One emoji for the repository.' },
+          color: { type: 'string', description: `The repository's color: #RRGGBB or one of ${NAMES.join(', ')}. Only when the person chose a color.` },
+          name: { type: 'string', description: 'A name for this window; an empty string clears it.' },
+          hidden: { type: 'boolean', description: 'Hide (true) or show (false) the tint in this window.' },
+          titles: { type: 'boolean', description: 'Whether Claude keeps this window\'s title on its main topic.' },
+          frame: { type: 'boolean', description: 'A colored border around the person\'s own messages, for the repository.' },
+          pattern: { type: 'string', enum: [...PATTERNS], description: 'The terminal strip\'s pattern.' },
+          undo: { type: 'boolean', description: 'Go back to the emoji and color before the last change.' },
+        },
+      },
+    }).catch(() => null)
 
     try {
       const key = await repoKey($)
@@ -1037,9 +1154,15 @@ export const register: Register = on => {
     const verb = (words[0] ?? '').toLowerCase()
     const rest = words.slice(1).join(' ')
     const later = 'Other windows of this repo follow within 30 seconds.'
+    // Anything that is not a clear command goes to Claude, which asks with a few choices.
+    const ask = async (task: 'repick' | 'intent') =>
+      (await askClaude($, key, e.args.trim(), task)) ? { text: 'Claude will ask you what you want.' } : { text: USAGE }
 
-    if (verb === '' || verb === 'help') {
+    if (verb === 'help') {
       return { text: USAGE }
+    }
+    if (verb === '') {
+      return await ask('intent')
     }
     if (verb === 'off' || verb === 'on') {
       await update($, isHidden, () => verb === 'off')
@@ -1048,7 +1171,7 @@ export const register: Register = on => {
     }
     if (verb === 'titles' || verb === 'title') {
       const wanted = rest.toLowerCase()
-      if (wanted !== 'on' && wanted !== 'off') return { text: 'Use /mod_tint titles on or /mod_tint titles off.' }
+      if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
       await update($, isTitling, () => wanted === 'on')
       return {
         text: wanted === 'on'
@@ -1058,7 +1181,7 @@ export const register: Register = on => {
     }
     if (verb === 'frame') {
       const wanted = rest.toLowerCase()
-      if (wanted !== 'on' && wanted !== 'off') return { text: 'Use /mod_tint frame on or /mod_tint frame off.' }
+      if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
       await saveChoice($, key, { frame: wanted === 'on' })
       await loadChoice($, key)
       return { text: `Border around your messages is ${wanted} for ${key}. ${later}` }
@@ -1079,12 +1202,11 @@ export const register: Register = on => {
       return { text: await updateTint($) }
     }
     if (verb === 'repick') {
-      const picked = await pickIdentity($, key, true)
-      return {
-        text: picked
-          ? `Claude picked ${picked.icon} ${picked.color} for ${key}. ${later}`
-          : `Claude could not choose right now, so ${key} keeps its emoji and color. Try /mod_tint repick again later.`,
-      }
+      return await ask('repick')
+    }
+    if (verb === 'undo') {
+      const back = await undoLook($, key)
+      return { text: back ? `${key} is back to ${lookText(back)}. ${later}` : `${key} has no earlier look to go back to.` }
     }
     if (verb === 'desktop') {
       const home = (await $.env.get('HOME')) ?? ''
@@ -1123,19 +1245,16 @@ export const register: Register = on => {
       return { text: rest ? `This window is now "${rest}".` : 'Window name cleared.' }
     }
     if (verb === 'icon') {
-      if (!rest) return { text: 'Give an emoji, for example /mod_tint icon 🧪 (/mod_tint repick lets Claude choose).' }
-      // A color you set yourself stays; otherwise the color follows the new emoji.
-      const manual = (await readChoices($))[key]?.manualColor === true
-      const derived = manual ? null : await emojiColor($, rest)
-      await saveChoice($, key, derived ? { icon: rest, color: derived } : { icon: rest })
-      await loadChoice($, key)
+      if (!rest) return await ask('repick')
+      const derived = await iconColor($, key, rest)
+      await saveLook($, key, derived ? { icon: rest, color: derived } : { icon: rest })
       return { text: `Emoji for ${key} is now ${rest}${derived ? `, color ${derived}` : ''}. ${later}` }
     }
     if (verb === 'pattern' || isPattern(verb)) {
       const asked = verb === 'pattern' ? rest.toLowerCase() : verb
       const now = (await read($, pattern)) ?? autoPattern(key)
       const picked = asked || PATTERNS[(PATTERNS.indexOf(now as Pattern) + 1) % PATTERNS.length]!
-      if (!isPattern(picked)) return { text: `Unknown pattern "${asked}". Try: ${PATTERNS.join(', ')}.` }
+      if (!isPattern(picked)) return await ask('intent')
       await saveChoice($, key, { pattern: picked })
       await loadChoice($, key)
       return { text: `Pattern for ${key} is now ${picked}. ${later}` }
@@ -1144,16 +1263,61 @@ export const register: Register = on => {
       const asked = verb === 'color' ? rest.toLowerCase() : verb
       const now = nearestName((await read($, color)) ?? autoColor(key))
       const picked = asked || NAMES[(NAMES.indexOf(now) + 1) % NAMES.length]!
-      if (!isColor(picked)) return { text: `Unknown color "${asked}". Try: ${NAMES.join(', ')}, or #hex.` }
-      await saveChoice($, key, { color: picked, manualColor: true })
-      await loadChoice($, key)
+      if (!isColor(picked)) return await ask('intent')
+      await saveLook($, key, { color: picked, manualColor: true })
       return { text: `Color for ${key} is now ${picked}. ${later}` }
     }
 
-    // Anything else is a window name, so /mod_tint Backend just works.
-    await update($, name, () => words.join(' '))
+    // Anything else (a lone emoji, a typo, "go back", "make it green") Claude works out.
+    return await ask('intent')
+  })
+
+  // Claude applies what the person chose in askClaude's question.
+  on('tool.call', { tool: new RegExp(`^${SET_TOOL}$`) }, async ($, e) => {
+    const key = (await read($, repo)) ?? (await repoKey($))
+    const input = e as unknown as {
+      icon?: string; color?: string; name?: string; hidden?: boolean; titles?: boolean; frame?: boolean; pattern?: string; undo?: boolean
+    }
+    const icon = input.icon?.trim()
+    const asked = input.color?.trim().toLowerCase()
+    if (icon === '') return { deny: 'icon is empty: give one emoji.' }
+    if (asked !== undefined && !isColor(asked)) return { deny: `color must be #RRGGBB or one of ${NAMES.join(', ')}.` }
+    if (input.pattern !== undefined && !isPattern(input.pattern)) return { deny: `pattern must be one of ${PATTERNS.join(', ')}.` }
+    const done: string[] = []
+    if (input.undo) {
+      const back = await undoLook($, key)
+      done.push(back ? `${key} is back to ${lookText(back)}.` : `${key} has no earlier look; nothing to undo.`)
+    }
+    if (icon !== undefined || asked !== undefined) {
+      const derived = icon !== undefined && asked === undefined ? await iconColor($, key, icon) : null
+      const change: Look = asked !== undefined
+        ? { ...(icon !== undefined ? { icon } : {}), color: asked, manualColor: true }
+        : derived ? { icon, color: derived } : { icon }
+      await saveLook($, key, change)
+      done.push(`${key} is now ${lookText((await readChoices($))[key] ?? {})}.`)
+    }
+    if (input.name !== undefined) {
+      const wanted = input.name.trim()
+      await update($, name, () => wanted || null)
+      done.push(wanted ? `This window is named "${wanted}".` : 'Window name cleared.')
+    }
+    if (input.hidden !== undefined) {
+      await update($, isHidden, () => input.hidden === true)
+      done.push(input.hidden ? 'Tint hidden in this window.' : 'Tint shown in this window.')
+    }
+    if (input.titles !== undefined) {
+      await update($, isTitling, () => input.titles === true)
+      done.push(input.titles ? 'Claude keeps this window\'s title on its main topic.' : 'Claude no longer renames this window.')
+    }
+    if (input.frame !== undefined || input.pattern !== undefined) {
+      await saveChoice($, key, { ...(input.frame !== undefined ? { frame: input.frame } : {}), ...(input.pattern ? { pattern: input.pattern } : {}) })
+      await loadChoice($, key)
+      if (input.frame !== undefined) done.push(`Border around messages ${input.frame ? 'on' : 'off'} for ${key}.`)
+      if (input.pattern) done.push(`Pattern is now ${input.pattern}.`)
+    }
     await refreshStatus($)
-    return { text: `This window is now "${words.join(' ')}".` }
+    if (done.length === 0) return { result: 'Nothing changed: give at least one field.' }
+    return { result: `${done.join(' ')} Other windows of the repository follow within 30 seconds.` }
   })
 
   // Your own messages: the app draws its bubble, the mod adds a border in this

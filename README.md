@@ -105,14 +105,15 @@ When a new version is out, tint tells you: the band's last line says **✨ New v
 
 ## ⌨️ Commands
 
-Type `/mod_tint` any time to see this list.
+**You don't need to remember any of this.** Type `/mod_tint` alone, or say what you want in your own words: `/mod_tint new emoji`, `/mod_tint 🧪`, `/mod_tint go back`, `/mod_tint make it green`. Claude works out what you mean and asks you with a few choices to click. `/mod_tint help` shows this list.
 
 | Command | What it does |
 |---|---|
 | `/mod_tint name Backend` | Name this window. `/mod_tint name` alone clears it. |
 | `/mod_tint icon 🧪` | Choose the repo's emoji. The color follows it. |
 | `/mod_tint color #7C3AED` | Choose the repo's color: a `#hex` or a name (red, orange, yellow, lime, green, teal, cyan, blue, indigo, purple, pink, brown). |
-| `/mod_tint repick` | Ask Claude for a new emoji. |
+| `/mod_tint repick` | Claude looks at what the repo is for and offers 3 new emoji to choose from. |
+| `/mod_tint undo` | Back to the emoji and color before the last change. |
 | `/mod_tint pattern waves` | Terminal strip pattern: triangles, circles, stripes, diamonds, waves, hexes, blocks, chevrons. |
 | `/mod_tint frame on` · `off` | A colored border around your own messages (off at first). |
 | `/mod_tint titles off` · `on` | Stop or restart Claude keeping the window title on the main topic. |

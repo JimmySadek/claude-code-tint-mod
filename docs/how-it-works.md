@@ -11,7 +11,7 @@ Why two parts: a mod can draw inside the conversation, but it is sealed off from
 
 ## Identity
 
-- **Emoji:** the first window of a new repository asks Claude Haiku once for an emoji that fits the repository. It is saved in `~/.claude/window-tint/repos.json` and never asked again. `/mod_tint icon 🧪` or `/mod_tint repick` change it.
+- **Emoji:** the first window of a new repository asks Claude Haiku once for an emoji that fits the repository. It is saved in `~/.claude/window-tint/repos.json` and never asked again. `/mod_tint icon 🧪` changes it. `/mod_tint repick` hands the choice to Claude in the window: it looks at what the repository is for, offers 3 emoji with AskUserQuestion, and applies the one you pick through tint's own tool (`mcp__tint__set`). The look before each change is kept, so `/mod_tint undo` goes back.
 - **Color:** measured from the emoji as macOS draws it, by `helpers/emoji-color.swift` (compiled on first use into `~/.claude/window-tint/`). If the emoji is dull or grey, Claude's suggested color is kept. `/mod_tint color #hex` sets one by hand.
 - **Number:** windows of the same repository agree on numbers through small files in `~/.claude/window-tint/windows/`.
 

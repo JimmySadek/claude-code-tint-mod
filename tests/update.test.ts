@@ -56,7 +56,7 @@ function world(on: Parameters<Extract<Parameters<typeof test>[1], (...args: neve
   return out
 }
 
-test('update: a newer release shows once a day; copy, how-to and Later work', async ($, on) => {
+test('update: a newer release shows; copy, how-to and Later work; GitHub asked every 6 hours', async ($, on) => {
   const files = new Map<string, string>()
   const out = world(on, files, '1.5.0')
   await $.session.start(START)
@@ -74,6 +74,16 @@ test('update: a newer release shows once a day; copy, how-to and Later work', as
   expect(await again.find({ key: 'update-now' })).toBeUndefined()
   await again.unmount()
   expect(out.fetches).toBe(1)
+  // 6 hours later a new start asks again, so a release shows the same day
+  // (the last check moved back 6 hours: the window's own timers stay out of it).
+  const state = `${HOME}/.claude/window-tint/update.json`
+  const last = JSON.parse(files.get(state)!)
+  files.set(state, JSON.stringify({ ...last, checkedAt: last.checkedAt - 6 * 60 * 60 * 1000 + 1 }))
+  await $.session.start(START)
+  expect(out.fetches).toBe(1)
+  files.set(state, JSON.stringify({ ...last, checkedAt: last.checkedAt - 6 * 60 * 60 * 1000 }))
+  await $.session.start(START)
+  expect(out.fetches).toBe(2)
 })
 
 test('update: nothing when this is the newest version', async ($, on) => {

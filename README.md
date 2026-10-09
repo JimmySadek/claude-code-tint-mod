@@ -193,7 +193,7 @@ printf '{"allowDevTools": false}\n' > ~/Library/Application\ Support/Claude/deve
 - **One small AI call per repository, once:** the first window of a new repo asks Claude Haiku for an emoji that fits it (from its name and README). The answer is saved and reused. Scripted runs (`claude -p`) never ask.
 - **No AI for colors:** the color is measured from the emoji on your Mac by a small Swift program.
 - **Window titles:** on your 2nd prompt and then every 5th, a short hidden note asks Claude to rename the window if its main topic changed. Off with `/mod_tint titles off`.
-- **One small web request a day:** tint asks GitHub for its newest version number (`api.github.com`). Nothing about you is sent. It never changes your settings.
+- **A few small web requests a day (one every 6 hours at most):** tint asks GitHub for its newest version number (`api.github.com`). Nothing about you is sent. It never changes your settings.
 - **Files:** only `~/.claude/window-tint/`.
 
 ## 🗑️ Uninstall

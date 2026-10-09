@@ -5,6 +5,7 @@ All notable changes to this mod. Versions follow [semantic versioning](https://s
 ## [1.6.1] - 2026-10-09
 
 ### Changed
+- **New versions show the same day.** tint asks GitHub for its newest version every 6 hours instead of once a day, so the update band no longer lags up to a day behind a release.
 - **A friendlier hint after `/mod_tint`.** The typeahead showed a long list of codes (`name <text> | color <#hex> | …`). It now says *say it your way*, with three examples, since Claude works out what you mean anyway.
 
 ### Fixed

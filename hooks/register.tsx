@@ -924,14 +924,14 @@ function glowColor(base: string, step: number): string {
 }
 
 // Updates. A marketplace someone adds (like tint's) never auto-updates unless they turn it
-// on, and its owner cannot (marketplace.json has no field for it). So, once a day, the mod
+// on, and its owner cannot (marketplace.json has no field for it). So, every 6 hours, the mod
 // asks GitHub for the newest release; when it is newer than this one and auto-update is off,
 // the band says so, with the update command to copy and how to turn auto-update on.
 const MARKETPLACE = 'claude-code-tint-mod'
 const UPDATE_COMMAND = `/plugin update tint@${MARKETPLACE}`
 const RELEASES_API = 'https://api.github.com/repos/JimmySadek/claude-code-tint-mod/releases/latest'
 const UPDATE_STATE = 'update.json'
-const CHECK_MS = 24 * 60 * 60 * 1000
+const CHECK_MS = 6 * 60 * 60 * 1000   // a release shows the same day; ~4 small requests a day
 type UpdateState = { checkedAt?: number; latest?: string; later?: string }
 
 const isNewer = (a: string, b: string) => {

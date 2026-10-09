@@ -9,7 +9,7 @@
       "name": "tint",
       "source": "./",
       "description": "Claude Code mod (CC tint mod): color each window by its repository, ring the focused window, and tint the whole Claude desktop app.",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "author": {
         "name": "GamalElDin Sadek"
       },

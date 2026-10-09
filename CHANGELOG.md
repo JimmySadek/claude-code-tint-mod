@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.3.2] - 2026-10-09
+
+### Fixed
+- **A window in "No folder" turned purple (or another plain color).** Its thread title still started with a color square from an older version (`🟪1️⃣ …`), and the desktop tint used that square as the window's color. Old color squares now give no color, the same way they were already skipped when learning a repo's emoji. Run `/mod_tint desktop go` to install the fixed script.
+
 ## [1.3.1] - 2026-10-09
 
 ### Fixed

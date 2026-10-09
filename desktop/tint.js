@@ -139,6 +139,9 @@
   // A heading counts only when its name is the end of its folder path, ignoring case, spaces,
   // "-" and "_" (the app shows BAM-Knowledge for a BAM_Knowledge folder), so never "No folder".
   const SQUARES = new Set(['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '⬜'])
+  // A thread title's own color. An old color square is not a choice, so it gives none:
+  // "🟪1️⃣ title" in a folder without a repo stays uncolored instead of purple.
+  const titleColor = emoji => (emoji && !SQUARES.has(emoji) ? colorOf(emoji) : null)
   const plain = text => bare(text.replace(/[\p{Co}\p{Cf}]/gu, ''))   // icon glyphs and invisible marks out
   const headingOf = row => {
     const section = row.closest('[class*="group/section"]')
@@ -179,7 +182,7 @@
       if (!repoBySid.get(sid)) repoBySid.set(sid, leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null)
       const fromSidebar = repoOfSid.get(sid)
       const repo = repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
-      const color = (repo && known[repo][0]) || colorOf(m?.[1])
+      const color = (repo && known[repo][0]) || titleColor(m?.[1])
       if (color) windows.set(panel, { color, n: Number(m?.[2] ?? m?.[3] ?? 1) || 1, sid })
     }
     return windows
@@ -379,7 +382,7 @@
         if (inside.length === 1) { heading = inside[0]; break }
         if (inside.length > 1) break
       }
-      const hoverColor = (heading && known[plain(heading.textContent || '')]?.[0]) ?? colorOf(TITLE.exec(title)?.[1])
+      const hoverColor = (heading && known[plain(heading.textContent || '')]?.[0]) ?? titleColor(TITLE.exec(title)?.[1])
       if (hoverColor) {
         row.setAttribute('data-wt-row', '')
         set(row, '--wt-hover', wash({ color: hoverColor, n: 1 }, 0.16, 1))

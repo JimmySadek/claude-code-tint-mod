@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.5.0-46AD5B" alt="Version 1.5.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.5.1-46AD5B" alt="Version 1.5.1"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://code.claude.com/docs/en/plugins/mods/overview"><img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757" alt="Claude Code 2.1.287 or later"></a>
 </p>
@@ -22,19 +22,58 @@
 
 ## 🚀 Get started
 
-**1. Install.** In Claude Code, type:
+### Step 1. Install tint
 
-```
-/plugin marketplace add JimmySadek/claude-code-tint-mod
-/plugin install tint@claude-code-tint-mod
-/reload-plugins
-```
+Pick where you use Claude Code. Install once: it works in both the desktop app and the Terminal.
 
-✅ The terminal part is done. Each repository gets its emoji and color on your first prompt.
+<details open>
+<summary><b>🖥️ In the Claude desktop app</b></summary>
 
-**2. Desktop app: click once.** A band above the message box asks **"Color the whole app with your tint mod?"** Click **Color the app**. Claude closes and opens again by itself, which takes a few seconds.
+1. In the message box, type `/plugin` and press **Enter**. **Settings → Plugins** opens.
+2. Click **+ Add** (top right), then **Add marketplace**.
+3. In **URL**, paste this, then click **Sync**:
+   ```
+   JimmySadek/claude-code-tint-mod
+   ```
+4. **Tint** now shows in **Discover**. Click **Add**.
+5. Start a new session.
 
-**3. Turn the colors on: 2 steps.** The band shows you how:
+Updates: the desktop app has no auto-update switch. When a new version is out, tint's band says so, with an **Update now** button.
+
+> [!IMPORTANT]
+> In the desktop app, typing `/plugin marketplace add …` only opens **Settings → Plugins**. Use the clicks above.
+</details>
+
+<details>
+<summary><b>💻 In Claude Code in the Terminal</b></summary>
+
+Type these 3 commands in Claude Code, **one at a time**, pressing **Enter** after each:
+
+1. Add tint's marketplace:
+   ```
+   /plugin marketplace add JimmySadek/claude-code-tint-mod
+   ```
+2. Install tint:
+   ```
+   /plugin install tint@claude-code-tint-mod
+   ```
+3. Load it:
+   ```
+   /reload-plugins
+   ```
+
+Then turn on auto-update, so you get new versions and fixes by themselves: type `/plugin` → **Marketplaces** → **claude-code-tint-mod** → **Enable auto-update**.
+</details>
+
+✅ **Installed.** From your first prompt, each repository gets its emoji and color: in the window title, and as a strip in the Terminal.
+
+### Step 2. Color the whole desktop app
+
+**Click once.** A band above the message box asks **"Color the whole app with your tint mod?"** Click **Color the app**. Claude closes and opens again by itself, which takes a few seconds.
+
+### Step 3. Turn the colors on
+
+**2 steps**, and the band shows you how:
 
 <p align="center">
   <img src="assets/images/desktop-reminder.png" alt="The tint band above the message box: 2 steps to activate your tint mod. 1, press Option Command I; a small tools window opens. 2, in that window, right-click tint, then click Run. A color strip counts down until the band closes by itself." width="100%">
@@ -43,37 +82,20 @@
 > [!NOTE]
 > **What to expect.** The desktop app forgets the colors every time it restarts. So **after each app start**, this band comes back with the same 2 steps: press **⌥⌘I**, then right-click **tint** → **Run**. It takes about 5 seconds. The band closes by itself after 60 seconds. The terminal needs none of this.
 
-<details>
-<summary>⚠️ <code>/plugin</code> doesn't work where you are?</summary>
-
-Run this in the Terminal, then start a new session:
-
-```bash
-claude plugin marketplace add JimmySadek/claude-code-tint-mod && claude plugin install tint@claude-code-tint-mod
-```
-</details>
 
 ---
 
 ## 🔄 Stay up to date
 
-When a new version is out, the band shows it on its last line:
+When a new version is out, tint tells you: the band's last line says **✨ New version**, with an **Update now** button.
 
-<p align="center">
-  <img src="assets/images/desktop-update.png" alt="The tint band with a footer line: New version 1.4.0, with the buttons Update now and Enable auto-update." width="100%">
-</p>
-
-| You want | Do this |
-|---|---|
-| **Update now** | Click **Update now**, or type `/mod_tint update`. Then type `/reload-plugins`. |
-| **Never think about it again** | Click **Enable auto-update** and follow the 3 steps it shows (below). Once. |
-
-<p align="center">
-  <img src="assets/images/desktop-auto-update.png" alt="Turn on auto-update, once: 1, click the message box, press Command V, then Enter; tint copied /plugin for you. 2, open the Marketplaces tab. 3, choose claude-code-tint-mod, then Enable auto-update." width="100%">
-</p>
+| Where | Update | Auto-update |
+|---|---|---|
+| 🖥️ **Desktop app** | Click **Update now**. Or type `/plugin`, choose **Tint**, then click **Update**. | The app has no switch for it, so tint tells you instead. |
+| 💻 **Terminal** | Click **Update now**, or type `/mod_tint update`. Then type `/reload-plugins`. | Once: type `/plugin` → **Marketplaces** → **claude-code-tint-mod** → **Enable auto-update**. |
 
 > [!TIP]
-> **Why a manual step?** Claude Code updates a plugin by itself only when *you* turn that on for its marketplace. A marketplace can't do it for you, and tint never changes your settings.
+> **Why isn't auto-update on by default?** Claude Code turns it on by itself only for Anthropic's own marketplaces. For any other marketplace, only you can, and tint never changes your settings.
 
 ---
 

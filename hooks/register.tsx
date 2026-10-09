@@ -882,7 +882,11 @@ async function updateTint($: EngineInterface): Promise<string> {
   await update($, showAutoHow, () => false)
   const run = await $.process.run(['claude', 'plugin', 'update', `tint@${MARKETPLACE}`]).catch(() => null)
   if (run?.exitCode === 0) return 'tint is up to date. Type /reload-plugins (or start a new session) to use the new version.'
-  return `Could not update from here. Type ${UPDATE_COMMAND}, then /reload-plugins.`
+  // The desktop app alone has no claude command; its own plugin page has an Update button.
+  const isDesktop = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')
+  return isDesktop
+    ? 'Could not update from here. Type /plugin, choose Tint, then click Update.'
+    : `Could not update from here. Type ${UPDATE_COMMAND}, then /reload-plugins.`
 }
 
 const AUTO_UPDATE_STEPS = 'Paste (⌘V) and press Enter → Marketplaces → claude-code-tint-mod → Enable auto-update.'
@@ -953,8 +957,7 @@ export const register: Register = on => {
         const fresh = await read($, newVersion)
         if (offer === null && fresh === null) return
         await update($, glow, n => n + 1)
-        // On the desktop the reminder and a lone update notice count down; the auto-update
-        // steps pause the count while they are up.
+        // On the desktop the reminder and a lone update notice count down.
         const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
           (offer === 'remind' || (offer === null && fresh !== null))
         if (!timed) return
@@ -962,8 +965,6 @@ export const register: Register = on => {
         const now = await $.clock.now()
         if (since === null) {
           if (remindDrawn) await update($, remindSince, () => now)
-        } else if (await read($, showAutoHow)) {
-          await update($, remindSince, t => (t ?? now) + GLOW_MS)
         } else if (now - since >= REMIND_MS) {
           await (offer === 'remind' ? remindDone($) : bandDone($))
         }
@@ -1258,33 +1259,30 @@ export const register: Register = on => {
     const base = fill((await read($, color)) ?? autoColor((await read($, repo)) ?? '…'))
     const step = await read($, glow)
     const now = glowColor(base, step)
-    const showHow = await read($, showAutoHow)
     // The reminder's strip is its countdown: full at first, shorter each second, gone at zero.
     // It starts the first time the band is drawn here (the clock tick reads this note), so a
     // survey or a late draw costs nothing. Drawing itself never writes state.
     const timed = offer === 'remind' || (offer === null && fresh !== null)
     if (timed) remindDrawn = true
     const since = await read($, remindSince)
-    const left = timed && !showHow ? (since === null ? REMIND_MS : Math.max(0, REMIND_MS - ((await $.clock.now()) - since))) : null
+    const left = timed ? (since === null ? REMIND_MS : Math.max(0, REMIND_MS - ((await $.clock.now()) - since))) : null
     const lit = left === null ? GLOW_BLOCKS : Math.ceil((GLOW_BLOCKS * left) / REMIND_MS)
     return (
       <Box flexDirection="column" borderStyle="bold" borderColor={now}>
-        {!showHow && (
-          <Box key="top" alignItems="center" gap={2}>
-            <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
-              {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
-                <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={k < lit ? glowColor(base, step - k) : '#3A3836'} />
-              ))}
-            </Box>
-            {left !== null && (
-              <Box key="desktop-timer" gap={1} alignItems="center" paddingRight={1}>
-                <Text dimColor>Auto-closes in</Text>
-                <Text key="desktop-left" bold color={now}>⏳ {Math.ceil(left / 1000)}s</Text>
-              </Box>
-            )}
+        <Box key="top" alignItems="center" gap={2}>
+          <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
+            {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
+              <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={k < lit ? glowColor(base, step - k) : '#3A3836'} />
+            ))}
           </Box>
-        )}
-        {offer !== null && !showHow && (
+          {left !== null && (
+            <Box key="desktop-timer" gap={1} alignItems="center" paddingRight={1}>
+              <Text dimColor>Auto-closes in</Text>
+              <Text key="desktop-left" bold color={now}>⏳ {Math.ceil(left / 1000)}s</Text>
+            </Box>
+          )}
+        </Box>
+        {offer !== null && (
           <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
             <Box flexDirection="column">
               <Markdown key="desktop-title" text={title} />
@@ -1303,27 +1301,15 @@ export const register: Register = on => {
             </Box>
           </Box>
         )}
-        {fresh !== null && !showHow && (
+        {fresh !== null && (
           <Box key="update-footer" flexDirection="column">
             {offer !== null && <Box key="update-divider" marginX={1} height={0.1} backgroundColor="#3A3836" />}
             <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
               <Text key="update-title">✨ <Text bold>New version</Text> <Text bold color={now}>{fresh}</Text></Text>
               <Box gap={1} alignItems="center">
                 <Button key="update-now" label="Update now" onPress={async () => $.ui.toast(`tint: ${await updateTint($)}`)} />
-                <Button key="update-how" label="Enable auto-update" plain onPress={() => openAutoUpdate($)} />
               </Box>
             </Box>
-          </Box>
-        )}
-        {showHow && (
-          <Box key="update-how-steps" paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
-            <Box flexDirection="column">
-              <Text bold>Turn on auto-update <Text dimColor>(once, then tint updates itself)</Text></Text>
-              <Text wrap="wrap">1️⃣  Click the message box below, press <Text bold color={now}>⌘V</Text>, then <Text bold color={now}>Enter</Text>. (We copied <Text bold>/plugin</Text> for you.)</Text>
-              <Text wrap="wrap">2️⃣  Open the <Text bold color={now}>Marketplaces</Text> tab.</Text>
-              <Text wrap="wrap">3️⃣  Choose <Text bold color={now}>claude-code-tint-mod</Text>, then <Text bold color={now}>Enable auto-update</Text>.</Text>
-            </Box>
-            <Button key="update-got-it" label="Done" onPress={() => update($, showAutoHow, () => false)} />
           </Box>
         )}
       </Box>

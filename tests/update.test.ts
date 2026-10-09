@@ -118,16 +118,12 @@ test('update: on the desktop, the update line rides along with the 2-step remind
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
   expect(await ui.find({ key: 'desktop-share' })).toBeDefined()
   expect(await ui.find({ key: 'update-now' })).toBeDefined()
-  // Auto-update swaps the footer for where to click, and Got it swaps it back.
-  await ui.press({ key: 'update-how' })
-  expect(await ui.find({ key: 'update-now' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /Enable auto-update/ })).toBeDefined()
-  await ui.press({ key: 'update-got-it' })
-  expect(await ui.find({ key: 'update-now' })).toBeDefined()
+  // The desktop app has no auto-update switch, so its band offers Update now alone.
+  expect(await ui.find({ key: 'update-how' })).toBeUndefined()
   await ui.unmount()
 })
 
-test('update: alone on the desktop it counts down 60 s; the auto-update steps pause the count', async ($, on) => {
+test('update: alone on the desktop it counts down 60 s, then hides until the next session', async ($, on) => {
   const APP = `${HOME}/Library/Application Support/Claude`
   const files = new Map<string, string>([
     [`${APP}/Preferences`, JSON.stringify({ electron: { devtools: { preferences: {
@@ -139,40 +135,32 @@ test('update: alone on the desktop it counts down 60 s; the auto-update steps pa
   await $.session.start({ ...START, surface: 'desktop' })
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
   expect(await ui.find({ key: 'desktop-share' })).toBeUndefined()
+  expect(await ui.find({ key: 'update-now' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /⏳ 60s/ })).toBeDefined()
-  await out.clock.advance(10_500)
-  await ui.press({ key: 'update-how' })
-  expect(out.copied).toBe('/plugin')
-  expect(await ui.find({ type: 'Text', text: /Marketplaces/ })).toBeDefined()
-  // Focused: no color strip while the steps are up.
-  expect(await ui.find({ key: 'glow-0' })).toBeUndefined()
-  await out.clock.advance(120_000)
-  // Paused: the steps are still up after two minutes.
-  expect(await ui.find({ key: 'update-got-it' })).toBeDefined()
-  await ui.press({ key: 'update-got-it' })
-  expect(await ui.find({ type: 'Text', text: /⏳ 50s/ })).toBeDefined()
-  await out.clock.advance(51_000)
+  await out.clock.advance(61_000)
   expect(await ui.find({ key: 'update-now' })).toBeUndefined()
   await ui.unmount()
 })
 
 test('update: the auto-update steps never open by themselves at a new start', async ($, on) => {
-  const APP = `${HOME}/Library/Application Support/Claude`
-  const files = new Map<string, string>([
-    [`${APP}/Preferences`, JSON.stringify({ electron: { devtools: { preferences: {
-      'script-snippets': JSON.stringify([{ name: 'tint', content: 'const REPOS = /*REPOS*/{}/*REPOS*/ // tint' }]),
-    } } } })],
-  ])
-  world(on, files, '1.5.0', 'desktop')
-  await $.session.start({ ...START, surface: 'desktop' })
-  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  world(on, new Map(), '1.5.0')
+  await $.session.start(START)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
   await ui.press({ key: 'update-how' })
-  expect(await ui.find({ key: 'update-got-it' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Enable auto-update/ })).toBeDefined()
   await ui.unmount()
-  await $.session.start({ ...START, surface: 'desktop' })
-  const again = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await again.find({ key: 'update-got-it' })).toBeUndefined()
-  expect(await again.find({ key: 'update-now' })).toBeDefined()
+  await $.session.start(START)
+  const again = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
+  expect(await again.find({ type: 'Text', text: /Marketplaces/ })).toBeUndefined()
   await again.unmount()
+})
+
+test('update: on the desktop, a failed Update now points to the app\'s own Update button', async ($, on) => {
+  const out = world(on, new Map(), '1.5.0', 'desktop')
+  out.failClaude = true
+  await $.session.start({ ...START, surface: 'desktop' })
+  const AT = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
+  const failed = await $.command.run({ command: 'mod_tint', args: 'update', ...AT })
+  expect(failed.text).toContain('choose Tint, then click Update')
 })
 

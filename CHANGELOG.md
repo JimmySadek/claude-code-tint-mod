@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.5.1] - 2026-10-09
+
+### Fixed
+- **Desktop app: no more auto-update steps that can't work.** The desktop app has no Marketplaces tab and no auto-update switch (only an **Update** button on the plugin's page). Its band now offers **Update now** alone; the terminal keeps **Enable auto-update**.
+- **Update now without a `claude` command** (the desktop app alone doesn't add one) now says to type `/plugin`, choose **Tint**, then click **Update**.
+
+### Changed
+- **README:** install steps for the desktop app (Settings → Plugins → **+ Add** → **Add marketplace**) and for the Terminal (3 commands, one copy box each), and a table for updates in each.
+
 ## [1.5.0] - 2026-10-09
 
 ### Added

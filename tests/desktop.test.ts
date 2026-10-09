@@ -258,7 +258,7 @@ test('desktop band: once per app start, how to turn the colors on; Done until th
   await ui.press({ key: 'desktop-share' })
   expect(out.copied).toContain('https://github.com/JimmySadek/claude-code-tint-mod')
   expect(out.toasts).toContain('tint: copied. Paste it to a friend 💌')
-  await out.clock.advance(30_500)
+  await out.clock.advance(60_500)
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
   await ui.unmount()
 
@@ -279,7 +279,7 @@ test('desktop band: once per app start, how to turn the colors on; Done until th
   await term.unmount()
 })
 
-test('desktop band: the reminder counts down 30 seconds, then hides like Done', async ($, on) => {
+test('desktop band: the reminder counts down 60 seconds, then hides like Done', async ($, on) => {
   const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
   const out = desktopWorld(on, files)
   out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
@@ -287,12 +287,12 @@ test('desktop band: the reminder counts down 30 seconds, then hides like Done', 
   // Time before the band is first drawn (a survey up, say) does not count.
   await out.clock.advance(20_000)
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await ui.find({ type: 'Text', text: /⏳ 30s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /⏳ 60s/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Auto-closes in' })).toBeDefined()
   // The clock tick after the first draw starts it (at most half a second later).
   await out.clock.advance(10_500)
-  expect(await ui.find({ type: 'Text', text: /⏳ 20s/ })).toBeDefined()
-  await out.clock.advance(20_500)
+  expect(await ui.find({ type: 'Text', text: /⏳ 50s/ })).toBeDefined()
+  await out.clock.advance(50_500)
   expect(await ui.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
   await ui.unmount()

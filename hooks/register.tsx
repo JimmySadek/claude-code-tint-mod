@@ -796,7 +796,7 @@ const GLOW_MS = 500
 const GLOW_SUB = 8
 const REPO_URL = 'https://github.com/JimmySadek/claude-code-tint-mod'   // shown small on the desktop band, to find and share the mod
 const SHARE_TEXT = `I color my Claude Code windows with tint 🎨 Every repo gets its own emoji and color, in the terminal and the desktop app. ${REPO_URL}`
-const REMIND_MS = 30_000   // the turn-on reminder hides by itself after this, as Done would
+const REMIND_MS = 60_000   // the turn-on reminder hides by itself after this, as Done would
 const GLOW_BLOCKS = 24
 function glowColor(base: string, step: number): string {
   const ring = [shade(base, 0.25), '#A78BFA', '#38BDF8', '#F472B6', '#FB923C']

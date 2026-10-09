@@ -111,6 +111,10 @@ test('update: /mod_tint update runs the plugin update, and says what to type whe
   const AT = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
   const done = await $.command.run({ command: 'mod_tint', args: 'update', ...AT })
   expect(out.runs).toContainEqual(['claude', 'plugin', 'update', 'tint@claude-code-tint-mod'])
+  // The marketplace copy is refreshed first, so a release made minutes ago is seen.
+  const refresh = out.runs.findIndex(argv => argv.join(' ') === 'claude plugin marketplace update claude-code-tint-mod')
+  expect(refresh).toBeGreaterThanOrEqual(0)
+  expect(refresh).toBeLessThan(out.runs.findIndex(argv => argv.join(' ') === 'claude plugin update tint@claude-code-tint-mod'))
   expect(done.text).toContain('/reload-plugins')
   out.failClaude = true
   const failed = await $.command.run({ command: 'mod_tint', args: 'update', ...AT })

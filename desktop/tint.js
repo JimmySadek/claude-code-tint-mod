@@ -271,6 +271,7 @@
     [data-wt-open] .group { background-color: transparent !important; }
     [data-wt-open] .group:hover { background-color: var(--wt-hover) !important; }`
   const MARKS = ['data-wt-tint', 'data-wt-icon', 'data-wt-row', 'data-wt-open', 'data-wt-ring']
+  const RING_PROPS = ['position', '--wt-t', '--wt-l', '--wt-r', '--wt-b', '--wt-radius', '--wt-ring-w', '--wt-ring', '--wt-glow']
   const touched = new Map()   // element -> CSS properties set inline
   const set = (el, prop, value) => {
     el.style.setProperty(prop, value, 'important')
@@ -311,6 +312,10 @@
     if (active) focus = active
     if (!windows.has(focus)) focus = [...windows.keys()][0] ?? null
     const seen = new Set()
+    // This paint's ring hosts and width-limited boxes. After a resize or a window opening or
+    // closing, a window's slot can be a different box: the old one must lose its ring and its
+    // width limit even when it is still in use for something else (else rings double up).
+    const rings = new Set(), limited = new Set()
 
     for (const [panel, info] of windows) {
       sizes?.observe(panel)
@@ -338,6 +343,7 @@
             const width = Math.floor(slot.right - want - el.getBoundingClientRect().left)
             if (width <= 200) continue
             if (el.style.getPropertyValue('max-width') !== `${width}px`) { set(el, 'max-width', `${width}px`); soon() }
+            limited.add(el)
             seen.add(el)
           }
         }
@@ -350,6 +356,7 @@
       set(host, '--wt-ring-w', isFocused ? '2.5px' : '1px')
       set(host, '--wt-ring', isFocused ? accent(info) : wash(info, 0.45, 1))
       set(host, '--wt-glow', isFocused ? `${accent(info)}40` : 'transparent')
+      rings.add(host)
       seen.add(host)
 
       // Top bar title: number only (the repo chip beside it keeps its emoji).
@@ -433,6 +440,15 @@
       seen.add(pill)
     }
 
+    // Rings and width limits left from an earlier layout go, even on boxes still in use.
+    for (const el of document.querySelectorAll('[data-wt-ring]')) {
+      if (rings.has(el)) continue
+      el.removeAttribute('data-wt-ring')
+      for (const prop of RING_PROPS) if (touched.get(el)?.has(prop)) unset(el, prop)   // only what this script set
+    }
+    for (const [el, props] of touched) {
+      if (props.has('max-width') && !limited.has(el)) { unset(el, 'max-width'); soon() }
+    }
     for (const el of [...touched.keys()]) if (!seen.has(el)) clear(el)
   }
 

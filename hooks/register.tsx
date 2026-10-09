@@ -986,6 +986,9 @@ async function checkUpdate($: EngineInterface): Promise<void> {
 async function updateTint($: EngineInterface): Promise<string> {
   await update($, newVersion, () => null)
   await update($, showAutoHow, () => false)
+  // Refresh the local copy of tint's marketplace first: without it, an update right after a
+  // release can still read the old version and say tint is up to date.
+  await $.process.run(['claude', 'plugin', 'marketplace', 'update', MARKETPLACE]).catch(() => null)
   const run = await $.process.run(['claude', 'plugin', 'update', `tint@${MARKETPLACE}`]).catch(() => null)
   if (run?.exitCode === 0) return 'tint is up to date. Type /reload-plugins (or start a new session) to use the new version.'
   // The desktop app alone has no claude command; its own plugin page has an Update button.

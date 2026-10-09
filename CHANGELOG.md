@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.7.3] - 2026-10-09
+
+### Fixed
+- **No more double or overflowing rings after resizing or opening and closing windows.** Each repaint draws a window's ring on its slot (the first box around it with room to spare). After a resize, the slot can be a different box, and the old one kept its ring and its width limit when it was still used for something else, so rings doubled up or ran past the window's edge. Each repaint now removes rings and width limits that are not part of the current layout. Needs the new desktop script once: the band offers **Update**.
+- **`/mod_tint update` right after a release** no longer says tint is up to date: it refreshes the local copy of tint's marketplace first.
+
 ## [1.7.2] - 2026-10-09
 
 ### Fixed

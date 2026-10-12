@@ -1071,96 +1071,115 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
   return { text: desktopStarted(copied.isCopied ? null : line, false), isOpened: false }
 }
 
+// Whether this loaded copy of the module has run startUp. Module variables start over at every
+// load, so false means this copy has no band, no timers and no command yet. /reload-plugins
+// loads a new copy into an open session; on 2026-10-12 (desktop app, an update installed from
+// git) that copy never showed the band, and nothing but session.start ever started it. So the
+// next prompt, /mod_tint or a surface attaching starts a copy that session.start never reached.
+let isStarted = false
+
+async function ensureStarted($: EngineInterface): Promise<void> {
+  if (isStarted) return
+  await startUp($, false)
+}
+
+// Everything a window needs: the command and tool, this window's number and look, the desktop
+// band and its clocks. Each session.start runs it; ensureStarted runs it once otherwise.
+async function startUp($: EngineInterface, isInteractive: boolean): Promise<void> {
+  isStarted = true
+  // A refused registration must never cost the band and the timers below.
+  await $.command.register({
+    name: 'mod_tint',
+    description: 'This window\'s emoji, color and name. Say what you want in your own words.',
+    argumentHint: 'say it your way, e.g. "new emoji", "make it green", "go back"',
+    immediate: true,
+  }).catch(() => null)
+  await $.tool.register({
+    name: 'set',
+    description: [
+      'Changes how tint marks this repository and this window, after the person chose it (ask first with AskUserQuestion).',
+      'icon and color are shared by every window of the repository; a new icon alone brings its own color, measured from the emoji.',
+      'name, hidden and titles are for this window only. undo goes back to the look before the last change.',
+    ].join(' '),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        icon: { type: 'string', description: 'One emoji for the repository.' },
+        color: { type: 'string', description: `The repository's color: #RRGGBB or one of ${NAMES.join(', ')}. Only when the person chose a color.` },
+        name: { type: 'string', description: 'A name for this window; an empty string clears it.' },
+        hidden: { type: 'boolean', description: 'Hide (true) or show (false) the tint in this window.' },
+        titles: { type: 'boolean', description: 'Whether Claude keeps this window\'s title on its main topic.' },
+        frame: { type: 'boolean', description: 'A colored border around the person\'s own messages, for the repository.' },
+        pattern: { type: 'string', enum: [...PATTERNS], description: 'The terminal strip\'s pattern.' },
+        undo: { type: 'boolean', description: 'Go back to the emoji and color before the last change.' },
+      },
+    },
+  }).catch(() => null)
+
+  try {
+    const key = await repoKey($)
+    const now = await $.clock.now()
+    void pruneWindows($, now).catch(() => null)
+    // The auto-update steps open only on a tap, never left over from an earlier start or reload.
+    await update($, showAutoHow, () => false)
+    void refreshOffer($).catch(() => null)
+    void checkUpdate($).catch(() => null)
+    // The band's color clock runs only while the band shows, so it costs nothing otherwise.
+    $.clock.every(GLOW_MS, async () => {
+      const offer = await read($, desktopOffer)
+      const fresh = await read($, newVersion)
+      if (offer === null && fresh === null) return
+      await update($, glow, n => n + 1)
+      // On the desktop the reminder and a lone update notice count down.
+      const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
+        (offer === 'remind' || (offer === null && fresh !== null))
+      if (!timed) return
+      const since = await read($, remindSince)
+      const now = await $.clock.now()
+      if (since === null) {
+        if (remindDrawn) await update($, remindSince, () => now)
+      } else if (now - since >= REMIND_MS) {
+        await (offer === 'remind' ? remindLater($) : bandDone($))
+      }
+    })
+    void rememberFolder($, key).catch(() => null)
+    const n = await claimNumber($, key, await $.session.id(), now)
+    await update($, repo, () => key)
+    await update($, number, () => n)
+    await loadChoice($, key)
+    await heartbeat($)
+    await refreshStatus($)
+    // The first window of a repo without an identity asks Claude for one in
+    // the background; the hashed color shows until it is saved. Under the
+    // REPL that happens now. The desktop app runs sessions through the SDK
+    // (isInteractive false at start), so there the first prompt picks it.
+    // Scripted runs (claude -p) draw nowhere and never pick, so temp folders
+    // do not fill repos.json.
+    pickTried = false
+    if (isInteractive) {
+      pickTried = true
+      void pickIdentity($, key).catch(() => null)
+    }
+    // The terminal colors the prompt box border; the desktop ignores /color.
+    if ((await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('terminal')) {
+      const barColor = BAR[nearestName((await read($, color)) ?? autoColor(key))] ?? 'default'
+      await $.command.run({ command: 'color', args: barColor }).catch(() => undefined)
+    }
+    // Stay counted, and pick up changes made in other windows of the repo.
+    $.clock.every(HEARTBEAT_MS, async () => {
+      await heartbeat($)
+      await loadChoice($, key)
+      await refreshStatus($)
+      await refreshOffer($).catch(() => null)
+    })
+  } catch (error) {
+    $.ui.toast(`window-tint: ${String(error)}`)
+  }
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({
-      name: 'mod_tint',
-      description: 'This window\'s emoji, color and name. Say what you want in your own words.',
-      argumentHint: 'say it your way, e.g. "new emoji", "make it green", "go back"',
-      immediate: true,
-    })
-    await $.tool.register({
-      name: 'set',
-      description: [
-        'Changes how tint marks this repository and this window, after the person chose it (ask first with AskUserQuestion).',
-        'icon and color are shared by every window of the repository; a new icon alone brings its own color, measured from the emoji.',
-        'name, hidden and titles are for this window only. undo goes back to the look before the last change.',
-      ].join(' '),
-      inputSchema: {
-        type: 'object',
-        properties: {
-          icon: { type: 'string', description: 'One emoji for the repository.' },
-          color: { type: 'string', description: `The repository's color: #RRGGBB or one of ${NAMES.join(', ')}. Only when the person chose a color.` },
-          name: { type: 'string', description: 'A name for this window; an empty string clears it.' },
-          hidden: { type: 'boolean', description: 'Hide (true) or show (false) the tint in this window.' },
-          titles: { type: 'boolean', description: 'Whether Claude keeps this window\'s title on its main topic.' },
-          frame: { type: 'boolean', description: 'A colored border around the person\'s own messages, for the repository.' },
-          pattern: { type: 'string', enum: [...PATTERNS], description: 'The terminal strip\'s pattern.' },
-          undo: { type: 'boolean', description: 'Go back to the emoji and color before the last change.' },
-        },
-      },
-    }).catch(() => null)
-
-    try {
-      const key = await repoKey($)
-      const now = await $.clock.now()
-      void pruneWindows($, now).catch(() => null)
-      // The auto-update steps open only on a tap, never left over from an earlier start or reload.
-      await update($, showAutoHow, () => false)
-      void refreshOffer($).catch(() => null)
-      void checkUpdate($).catch(() => null)
-      // The band's color clock runs only while the band shows, so it costs nothing otherwise.
-      $.clock.every(GLOW_MS, async () => {
-        const offer = await read($, desktopOffer)
-        const fresh = await read($, newVersion)
-        if (offer === null && fresh === null) return
-        await update($, glow, n => n + 1)
-        // On the desktop the reminder and a lone update notice count down.
-        const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
-          (offer === 'remind' || (offer === null && fresh !== null))
-        if (!timed) return
-        const since = await read($, remindSince)
-        const now = await $.clock.now()
-        if (since === null) {
-          if (remindDrawn) await update($, remindSince, () => now)
-        } else if (now - since >= REMIND_MS) {
-          await (offer === 'remind' ? remindLater($) : bandDone($))
-        }
-      })
-      void rememberFolder($, key).catch(() => null)
-      const n = await claimNumber($, key, await $.session.id(), now)
-      await update($, repo, () => key)
-      await update($, number, () => n)
-      await loadChoice($, key)
-      await heartbeat($)
-      await refreshStatus($)
-      // The first window of a repo without an identity asks Claude for one in
-      // the background; the hashed color shows until it is saved. Under the
-      // REPL that happens now. The desktop app runs sessions through the SDK
-      // (isInteractive false at start), so there the first prompt picks it.
-      // Scripted runs (claude -p) draw nowhere and never pick, so temp folders
-      // do not fill repos.json.
-      pickTried = false
-      if (e.isInteractive) {
-        pickTried = true
-        void pickIdentity($, key).catch(() => null)
-      }
-      // The terminal colors the prompt box border; the desktop ignores /color.
-      if ((await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('terminal')) {
-        const barColor = BAR[nearestName((await read($, color)) ?? autoColor(key))] ?? 'default'
-        await $.command.run({ command: 'color', args: barColor }).catch(() => undefined)
-      }
-      // Stay counted, and pick up changes made in other windows of the repo.
-      $.clock.every(HEARTBEAT_MS, async () => {
-        await heartbeat($)
-        await loadChoice($, key)
-        await refreshStatus($)
-        await refreshOffer($).catch(() => null)
-      })
-    } catch (error) {
-      $.ui.toast(`window-tint: ${String(error)}`)
-    }
-
+    await startUp($, e.isInteractive)
     return next(e)
   })
 
@@ -1170,7 +1189,17 @@ export const register: Register = on => {
     return sessionTitle ? { ...result, sessionTitle } : result
   })
 
+  // A surface joined (the desktop attaches after session.start): the band shows now, not at the
+  // next 30-second heartbeat. A copy session.start never reached starts here (see isStarted).
+  on('session.attach', async ($, e, next) => {
+    const result = await next(e)
+    if (isStarted) void refreshOffer($).catch(() => null)
+    else await ensureStarted($).catch(() => undefined)
+    return result
+  })
+
   on('classic.UserPromptSubmit', async ($, e, next) => {
+    await ensureStarted($).catch(() => undefined)
     let result = await next(e)
     const sessionTitle = await titled($, e.session_title)
     if (sessionTitle) result = { ...result, sessionTitle }
@@ -1190,6 +1219,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'mod_tint' }, async ($, e) => {
+    await ensureStarted($).catch(() => undefined)
     const key = (await read($, repo)) ?? (await repoKey($))
     const words = e.args.trim().split(/\s+/).filter(Boolean)
     const verb = (words[0] ?? '').toLowerCase()

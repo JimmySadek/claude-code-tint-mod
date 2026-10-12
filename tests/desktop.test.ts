@@ -285,6 +285,32 @@ test('desktop band: after each app start, how to turn the colors on; Done until 
   await term.unmount()
 })
 
+// /reload-plugins swaps in tint's new copy, but on 2026-10-12 (desktop app, git-installed update) the
+// band never came back in the open session: the new copy's band and timers depended on session.start
+// alone. Here no session.start reaches this copy; the next prompt or attach must start them.
+test('desktop band: a copy that never got session.start (a reload) starts on the next prompt', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{}/*REPOS*/ // tint v0')]])
+  const out = desktopWorld(on, files)
+  on('classic.UserPromptSubmit', () => ({}))
+  await $.classic.UserPromptSubmit({ prompt: 'I reloaded but still nothing' } as never)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ key: 'desktop-update' })).toBeDefined()
+  // Its timers run too: the heartbeat keeps this window counted.
+  await out.clock.advance(31_000)
+  expect(JSON.parse(files.get(`${DIR}/windows/me.json`)!).repo).toBe('lab-notes')
+  await ui.unmount()
+})
+
+test('desktop band: a copy that never got session.start starts when the desktop attaches', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith()]])
+  desktopWorld(on, files)
+  on('session.attach', ($, e) => ({ clientId: e.clientId }))
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ key: 'desktop-install' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('desktop band: the reminder counts down 60 seconds, hides, and comes back after 10 minutes until Done', async ($, on) => {
   const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
   const out = desktopWorld(on, files)

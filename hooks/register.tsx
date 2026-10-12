@@ -231,7 +231,7 @@ const DESKTOP_STEPS = [
   '',
   '**After each app start:** **⌥⌘I** → **Sources** → **Snippets** → right-click `tint` → **Run**. The snippet stays saved.',
   '',
-  'New repositories are picked up by themselves, so the snippet stays as it is. Run it again to turn it off.',
+  'New repositories are picked up by themselves, so the snippet stays as it is. Running it again is safe: it repaints. To turn it off, reload the app.',
   'Just trying? ⌥⌘I → **Console** → paste → **Enter**.',
 ].join('\n')
 
@@ -425,7 +425,10 @@ async function savedSnippet($: EngineInterface): Promise<string | null> {
 
 // What the person answered in the desktop band, shared by every window (desktop.json):
 // declined the install, put off one script version, or turned the colors on after one app start.
-type DesktopState = { isInstallDeclined?: boolean; updateLater?: string; doneFor?: string }
+// snoozedFor/snoozedAt: the reminder counted down unanswered for that app start, at that clock time.
+type DesktopState = {
+  isInstallDeclined?: boolean; updateLater?: string; doneFor?: string; snoozedFor?: string; snoozedAt?: number
+}
 
 async function desktopState($: EngineInterface): Promise<DesktopState> {
   return (await readJson<DesktopState>($, `${await folder($)}/${SNIPPET_STATE}`)) ?? {}
@@ -462,7 +465,9 @@ async function refreshOffer($: EngineInterface): Promise<void> {
   else if (scriptMark(saved) !== scriptMark(script) && state.updateLater !== scriptMark(script)) offer = 'update'
   else {
     const started = await appStarted($)
-    offer = started !== null && state.doneFor !== started ? 'remind' : null
+    const isSnoozed = started !== null && state.snoozedFor === started && state.snoozedAt !== undefined &&
+      (await $.clock.now()) - state.snoozedAt < REMIND_AGAIN_MS
+    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : null
   }
   await update($, desktopOffer, () => offer)
   if (offer !== 'remind' && (await read($, newVersion)) === null) {
@@ -474,10 +479,19 @@ async function refreshOffer($: EngineInterface): Promise<void> {
 // Set when the reminder band is drawn in this window; the countdown starts from it.
 let remindDrawn = false
 
-// Done, or the reminder's countdown running out: away in every window until the app starts again.
+// Done: away in every window until the app starts again.
 // The update line rode along in the same band, so it goes too (it comes back next session).
 async function remindDone($: EngineInterface): Promise<void> {
   await saveDesktopState($, { doneFor: (await appStarted($)) ?? undefined })
+  await update($, desktopOffer, () => null)
+  await bandDone($)
+}
+
+// The reminder's countdown ran out unanswered: away in every window for REMIND_AGAIN_MS, then
+// back until Done. Counting down never means the colors are on (on 2026-10-12 it ran out at
+// 1 AM with nobody there, and the colors stayed off all morning with no word about it).
+async function remindLater($: EngineInterface): Promise<void> {
+  await saveDesktopState($, { snoozedFor: (await appStarted($)) ?? undefined, snoozedAt: await $.clock.now() })
   await update($, desktopOffer, () => null)
   await bandDone($)
 }
@@ -920,7 +934,8 @@ const GLOW_MS = 500
 const GLOW_SUB = 8
 const REPO_URL = 'https://github.com/JimmySadek/claude-code-tint-mod'   // shown small on the desktop band, to find and share the mod
 const SHARE_TEXT = `I color my Claude Code windows with tint 🎨 Every repo gets its own emoji and color, in the terminal and the desktop app. ${REPO_URL}`
-const REMIND_MS = 60_000   // the turn-on reminder hides by itself after this, as Done would
+const REMIND_MS = 60_000   // the turn-on reminder hides by itself after this...
+const REMIND_AGAIN_MS = 10 * 60_000   // ...and comes back after this, until Done
 const GLOW_BLOCKS = 24
 function glowColor(base: string, step: number): string {
   const ring = [shade(base, 0.25), '#A78BFA', '#38BDF8', '#F472B6', '#FB923C']
@@ -1109,7 +1124,7 @@ export const register: Register = on => {
         if (since === null) {
           if (remindDrawn) await update($, remindSince, () => now)
         } else if (now - since >= REMIND_MS) {
-          await (offer === 'remind' ? remindDone($) : bandDone($))
+          await (offer === 'remind' ? remindLater($) : bandDone($))
         }
       })
       void rememberFolder($, key).catch(() => null)
@@ -1461,6 +1476,7 @@ export const register: Register = on => {
         steps: [
           ['1️⃣  Press ', { bold: '⌥⌘I' }, ' (Option + Command + I). A small tools window opens.'],
           ['2️⃣  In that window, right-click ', { bold: 'tint' }, ', then click ', { bold: 'Run' }, '.'],
+          ['Then click ', { bold: '✅ Done' }, '. Until then this comes back every 10 minutes.'],
         ],
       },
     }
@@ -1506,7 +1522,8 @@ export const register: Register = on => {
               {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
               {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
               {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
-              {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" onPress={share} />}
+              {offer === 'remind' && <Button key="desktop-done" label="✅ Done" onPress={() => remindDone($)} />}
+              {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" plain onPress={share} />}
             </Box>
           </Box>
         )}

@@ -2,6 +2,17 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.8.0] - 2026-10-12
+
+### Fixed
+- **The reminder no longer gives up after one minute.** After each app start the band shows how to turn the colors on, and it closes by itself after 60 seconds. Closing used to count as done for the whole app start. On 2026-10-12 the app restarted at 1 AM, the reminder ran out with nobody there, and the colors stayed off all morning without a word. Now the countdown only hides it: it comes back every 10 minutes, in every window, until you click **✅ Done**.
+
+### Added
+- **✅ Done** on the reminder: click it once the colors are on. It holds until the app starts again.
+
+### Changed
+- **Running the snippet again keeps the colors on.** A second **Run** used to turn them off, an easy trap when you are not sure it ran. Now it repaints from scratch. To turn the colors off, reload the app. Needs the new desktop script once: the band offers **Update**.
+
 ## [1.7.4] - 2026-10-09
 
 ### Fixed

@@ -247,7 +247,7 @@ test('desktop band: an older snippet offers the update; repo colors alone never 
   await after.unmount()
 })
 
-test('desktop band: once per app start, how to turn the colors on; Done until the app starts again', async ($, on) => {
+test('desktop band: after each app start, how to turn the colors on; Done until the app starts again', async ($, on) => {
   const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
   const out = desktopWorld(on, files)
   out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
@@ -257,23 +257,26 @@ test('desktop band: once per app start, how to turn the colors on; Done until th
   expect(await ui.find({ type: 'Text', text: '⌥⌘I' })).toBeDefined()
   expect(await ui.find({ key: 'glow-0' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /2️⃣\s+In that window, right-click/ })).toBeDefined()
-  expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
   await ui.press({ key: 'desktop-share' })
   expect(out.copied).toContain('https://github.com/JimmySadek/claude-code-tint-mod')
   expect(out.toasts).toContain('tint: copied. Paste it to a friend 💌')
-  await out.clock.advance(60_500)
+  await ui.press({ key: 'desktop-done' })
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
+  expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
+  // Done holds for this app start, however long it runs.
+  await out.clock.advance(60 * 60_000)
+  expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
   await ui.unmount()
 
   await $.session.start(START)
   const again = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await again.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
+  expect(await again.find({ key: 'desktop-done' })).toBeUndefined()
   await again.unmount()
 
   out.ps = APP_ROW('Fri Oct  9 09:00:00 2026')
   await $.session.start(START)
   const restarted = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await restarted.find({ type: 'Text', text: /⏳/ })).toBeDefined()
+  expect(await restarted.find({ key: 'desktop-done' })).toBeDefined()
   await restarted.unmount()
 
   // The terminal never shows the desktop band.
@@ -282,7 +285,7 @@ test('desktop band: once per app start, how to turn the colors on; Done until th
   await term.unmount()
 })
 
-test('desktop band: the reminder counts down 60 seconds, then hides like Done', async ($, on) => {
+test('desktop band: the reminder counts down 60 seconds, hides, and comes back after 10 minutes until Done', async ($, on) => {
   const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
   const out = desktopWorld(on, files)
   out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
@@ -297,7 +300,23 @@ test('desktop band: the reminder counts down 60 seconds, then hides like Done', 
   expect(await ui.find({ type: 'Text', text: /⏳ 50s/ })).toBeDefined()
   await out.clock.advance(50_500)
   expect(await ui.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
+  // Counting down is not Done: nobody may have been there to see it.
+  const state = JSON.parse(files.get(`${DIR}/desktop.json`)!)
+  expect(state.doneFor).toBeUndefined()
+  expect(state.snoozedFor).toBe('Fri Oct  9 03:36:30 2026')
+  // A new window inside the 10 minutes stays quiet too.
+  await $.session.start(START)
+  const other = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await other.find({ key: 'desktop-done' })).toBeUndefined()
+  await other.unmount()
+  // After 10 minutes (picked up by the 30-second heartbeat) it is back, with a fresh countdown.
+  await out.clock.advance(10 * 60_000)
+  expect(await ui.find({ key: 'desktop-done' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /⏳ 60s/ })).toBeDefined()
+  await ui.press({ key: 'desktop-done' })
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
+  await out.clock.advance(30 * 60_000)
+  expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
   await ui.unmount()
 })
 

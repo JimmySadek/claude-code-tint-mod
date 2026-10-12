@@ -3,7 +3,7 @@
 // How to use: type /mod_tint css in Claude Code (it copies this script), open the desktop app's
 // DevTools with ⌥⌘I, choose Console, paste, press Enter. Better: save it once as a DevTools
 // snippet (Sources → Snippets) and after each app start run it there: right-click it, Run.
-// Run it again to turn it off. Reloading the app also removes it.
+// Running it again is safe: it repaints from scratch, so the colors stay on. Reloading the app removes it.
 //
 // What it does (display only; it sends nothing, stores nothing and changes no file):
 //   - the window you are typing in: a ring just outside its edge with a soft glow, a tint of
@@ -32,7 +32,8 @@
 //   colors = the app's --cds-surface-* variables.
 // If an app update breaks it, run desktop/scan.js and compare.
 (() => {
-  if (window.__windowTint) { window.__windowTint.off(); return 'window-tint off' }
+  // Already on (an earlier run in this page): start over, so a second Run never leaves it off.
+  if (window.__windowTint) window.__windowTint.off()
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
   // Live labels: tint draws a 1-pixel picture in each window's footer, labelled

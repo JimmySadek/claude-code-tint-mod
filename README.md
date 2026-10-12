@@ -59,7 +59,7 @@ A band above the message box asks **"Color the whole app with your tint mod?"** 
   <img src="assets/images/desktop-install.png" alt="The tint band above the message box: Color the whole app with your tint mod? Click Color the app; Claude closes and opens again by itself. Buttons: Color the app, No thanks." width="100%">
 </p>
 
-After each app start, the band shows **2 steps** to turn the colors on: press **⌥⌘I**, then right-click **tint** → **Run**. About 5 seconds.
+After each app start, the band shows **2 steps** to turn the colors on: press **⌥⌘I**, then right-click **tint** → **Run**. About 5 seconds. Then click **✅ Done**; until you do, the reminder comes back every 10 minutes. Running the snippet twice is safe: it stays on.
 
 <p align="center">
   <img src="assets/images/desktop-reminder.png" alt="The tint band above the message box: 2 steps to activate your tint mod. 1, press Option Command I; a small tools window opens. 2, in that window, right-click tint, then click Run. A color strip counts down until the band closes by itself." width="100%">

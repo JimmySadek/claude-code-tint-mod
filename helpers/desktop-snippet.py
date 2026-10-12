@@ -3,7 +3,8 @@
 
 You run it yourself, from the Terminal line that /mod_tint desktop copies. The app keeps
 DevTools snippets in its Preferences file and rewrites that file while it runs, so this
-quits the app first (as the app's own Quit would), saves, and opens the app again.
+quits the app first (as the app's own Quit would), saves, and opens the app again. When the
+app asks "Claude is still working…" it waits up to 10 minutes for "Quit anyway", saying so.
 It saves a copy of Preferences first, then changes only DevTools settings: the snippet
 "tint", and DevTools opening on Sources -> Snippets. With --dev-mode it also turns on the
 app's Developer Mode (what Help -> Troubleshooting -> Enable Developer Mode... writes), so
@@ -23,7 +24,11 @@ import time
 NAME = 'tint'
 APP = '/Claude.app/Contents/MacOS/Claude'   # the desktop app; Claude Code itself is .../claude.app/.../claude
 BUNDLE = 'com.anthropic.claudefordesktop'
-QUIT_WAIT_S = 60
+# While any Claude session is working (always the one that typed /mod_tint desktop go), the app
+# answers a quit with "Claude is still working... Quit anyway / Wait for Claude / Cancel" and
+# waits for a click. So this waits as long as a person may take, saying so, in this window.
+QUIT_WAIT_S = 600
+SAY_EVERY_S = 15
 
 
 def app_running():
@@ -32,13 +37,24 @@ def app_running():
 
 
 def quit_app():
-    subprocess.run(['osascript', '-e', f'tell application id "{BUNDLE}" to quit'], capture_output=True)
-    for _ in range(QUIT_WAIT_S):
-        if not app_running():
-            time.sleep(1)   # let it finish writing its files
-            return True
-        time.sleep(1)
-    return False
+    print('window-tint: 👉 If Claude asks "Claude is still working…", click "Quit anyway".')
+    print('             (The working session is the one that started this. It comes back after.)')
+    # Not waited on: the app may hold the answer until the question is clicked.
+    asked = subprocess.Popen(['osascript', '-e', f'tell application id "{BUNDLE}" to quit'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        for waited in range(QUIT_WAIT_S):
+            if not app_running():
+                time.sleep(1)   # let it finish writing its files
+                return True
+            if waited > 0 and waited % SAY_EVERY_S == 0:
+                print(f'window-tint: ⏳ waiting for Claude to quit ({waited} s). Click "Quit anyway" in Claude.'
+                      ' Clicked Cancel? Quit Claude with ⌘Q. Nothing is installed yet.')
+            time.sleep(1)
+        return False
+    finally:
+        if asked.poll() is None:
+            asked.kill()
 
 
 def save(prefs, snippet, backup):
@@ -108,8 +124,14 @@ def main():
             print('window-tint: quit the Claude app first (⌘Q), then run this again.')
             return 3
         print('window-tint: quitting the Claude app…')
-        if not quit_app():
-            print('window-tint: the app did not quit. Quit it yourself (⌘Q), then run this again.')
+        try:
+            has_quit = quit_app()
+        except KeyboardInterrupt:
+            print('\nwindow-tint: ❌ stopped. NOT installed; nothing was changed.')
+            return 3
+        if not has_quit:
+            print(f'window-tint: ❌ NOT installed: Claude was still open after {QUIT_WAIT_S // 60} minutes.'
+                  ' Nothing was changed. In Claude, type /mod_tint desktop go to try again.')
             return 3
     try:
         save(args.prefs, args.snippet, args.backup)

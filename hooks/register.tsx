@@ -190,7 +190,7 @@ function desktopPlan(isDevMode: boolean, isUpdate = false): string {
       ? '**An update for the desktop colors is ready.** `/mod_tint desktop go` installs it in one go:'
       : '**Color the whole desktop app.** `/mod_tint desktop go` does this in one go:',
     '',
-    '1. Opens **Terminal**, which quits Claude (so save anything you are typing).',
+    '1. Opens **Terminal**, which quits Claude (so save anything you are typing). Claude asks *Claude is still working…*: click **Quit anyway**.',
     '2. Saves a backup of the app\'s settings, then the tint as a DevTools snippet named `tint`.',
     ...(isDevMode ? [] : ['3. Turns on **Developer Mode** (the same as Help → Troubleshooting → Enable Developer Mode…), so ⌥⌘I opens DevTools.']),
     `${isDevMode ? 3 : 4}. Opens Claude again. This window is still there.`,
@@ -204,7 +204,15 @@ function desktopPlan(isDevMode: boolean, isUpdate = false): string {
 // Shown after /mod_tint desktop go and /mod_tint desktop line.
 function desktopStarted(line: string | null, isOpened: boolean): string {
   if (isOpened) {
-    return '✅ **Terminal is opening** to install the tint. Claude quits and comes back in a few seconds.\n\nThen: **⌥⌘I** → right-click **tint** → **Run**. The Terminal window closes by itself when it is done.'
+    return [
+      '**Terminal is opening** to install the tint. Nothing is installed yet.',
+      '',
+      '👉 Claude asks **"Claude is still working…"** (this window is busy). Click **Quit anyway**. Claude closes and opens again by itself, with this window.',
+      '',
+      'The Terminal window says **✅ All done** when it worked. If it says **❌ NOT installed**, nothing changed: type `/mod_tint desktop go` again.',
+      '',
+      'Then: **⌥⌘I** → right-click **tint** → **Run**.',
+    ].join('\n')
   }
   return [
     line === null
@@ -212,7 +220,8 @@ function desktopStarted(line: string | null, isOpened: boolean): string {
       : 'Run this line in **Terminal**. It quits Claude, saves the tint as a DevTools snippet (a backup of the app\'s settings first), turns on Developer Mode if needed, and opens Claude again.\n\n```\n' + line + '\n```',
     '',
     line === null ? '1. Open **Terminal** (⌘Space, type `Terminal`, Enter), paste with **⌘V**, press **Enter**.' : '1. Open **Terminal** and run the line above.',
-    '2. When Claude is back: **⌥⌘I** → right-click **tint** → **Run**.',
+    '2. If Claude asks **"Claude is still working…"**, click **Quit anyway**.',
+    '3. When Claude is back: **⌥⌘I** → right-click **tint** → **Run**.',
   ].join('\n')
 }
 
@@ -1059,7 +1068,7 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
       "  echo 'window-tint: ✅ All done. This window closes by itself.'",
       `  (sleep 3; osascript -e 'tell application "Terminal" to close (every window whose name contains "${SNIPPET_RUNNER}")') >/dev/null 2>&1 &`,
       'else',
-      "  echo 'window-tint: You can close this window now.'",
+      "  echo 'window-tint: ❌ NOT installed (see above). You can close this window now.'",
       'fi',
       '',
     ].join('\n'))
@@ -1480,7 +1489,7 @@ export const register: Register = on => {
       await update($, desktopOffer, () => null)
       const { isOpened } = await installDesktop($, 'go')
       $.ui.toast(isOpened
-        ? 'tint: Terminal is opening. Claude quits and comes back in a few seconds.'
+        ? 'tint: Terminal is opening. When Claude asks "Claude is still working…", click Quit anyway.'
         : 'tint: Terminal line copied. Open Terminal, paste with ⌘V, press Enter.')
     }
     const share = async () => {

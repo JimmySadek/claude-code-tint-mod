@@ -98,7 +98,7 @@ Updates: when a new version is out, the band says **✨ New version** with an **
 <details>
 <summary>🖥️ How the desktop colors work</summary>
 
-A mod can draw inside the conversation, but not the app around it. So tint saves a small script in the desktop app's **DevTools** as a snippet named `tint`. **Color the app** opens Terminal, which quits Claude, backs up its settings to `~/.claude/window-tint/Preferences.backup`, saves the snippet, turns on Developer Mode and opens Claude again. The Terminal window closes by itself when it is done.
+A mod can draw inside the conversation, but not the app around it. So tint saves a small script in the desktop app's **DevTools** as a snippet named `tint`. **Color the app** opens Terminal, which quits Claude (when Claude asks *Claude is still working…*, click **Quit anyway**), backs up its settings to `~/.claude/window-tint/Preferences.backup`, saves the snippet, turns on Developer Mode and opens Claude again. The Terminal window closes by itself when it is done.
 
 The script only changes how the open page looks. It sends nothing and changes no file. Colors you choose later show right away, with no reinstall. To turn it off, reload the app.
 

@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.8.1] - 2026-10-12
+
+### Fixed
+- **The band comes back after `/reload-plugins`.** On 2026-10-12 tint 1.8.0 was installed and loaded with `/reload-plugins`, but the band offering the desktop update never showed in the open window. Everything the band needs (and its timers) started only when a session starts. Now, if a loaded copy of tint has not started, it starts on your next message, on `/mod_tint`, or when the desktop app attaches. When the desktop attaches, the band also shows at once instead of up to 30 seconds later.
+- **Installing the desktop colors no longer fails at the quit question.** While any Claude session is working (always the one where you typed the command), the desktop app asks *Claude is still working… Quit anyway / Wait for Claude / Cancel*. The installer gave up after 60 seconds and saved nothing, quietly. Now the reply, the band and the Terminal window all say to click **Quit anyway**. Terminal shows a waiting line every 15 seconds and waits up to 10 minutes. If Claude never quits, it says **❌ NOT installed** and that nothing changed. The reply no longer starts with ✅ before anything is installed.
+
 ## [1.8.0] - 2026-10-12
 
 ### Fixed

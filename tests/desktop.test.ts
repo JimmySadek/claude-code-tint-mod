@@ -145,10 +145,15 @@ test('desktop: /mod_tint desktop explains first; go runs the install in Terminal
   expect(runner).toContain('--restart; then\n')
   // On success the window closes itself; on a problem it stays and says it is safe to close.
   expect(runner).toContain('close (every window whose name contains "install-desktop.command")')
-  expect(runner).toContain('You can close this window now.')
+  expect(runner).toContain('❌ NOT installed (see above). You can close this window now.')
   expect(out.runs).toContainEqual(['chmod', '755', `${DIR}/install-desktop.command`])
   expect(out.runs).toContainEqual(['open', '-a', 'Terminal', `${DIR}/install-desktop.command`])
   expect(go.text).toContain('Terminal is opening')
+  // The app asks before it quits while a session works (this one always is): say what to click,
+  // and never sound done before Terminal says so.
+  expect(go.text).toContain('Quit anyway')
+  expect(go.text).toContain('Nothing is installed yet')
+  expect(go.text).not.toContain('✅ **Terminal')
   expect(out.copied).toBeUndefined()
 
   // Installed and current (repo colors aside): the plain-words card to turn the colors on.
@@ -220,7 +225,7 @@ test('desktop band: Color the app runs the same install as /mod_tint desktop go'
   await ui.press({ key: 'desktop-install' })
   expect(out.runs.some(argv => argv[0] === 'open' && argv.includes('Terminal'))).toBe(true)
   expect(files.get(`${DIR}/install-desktop.command`)).toContain('--restart')
-  expect(out.toasts).toContain('tint: Terminal is opening. Claude quits and comes back in a few seconds.')
+  expect(out.toasts).toContain('tint: Terminal is opening. When Claude asks "Claude is still working…", click Quit anyway.')
   await ui.unmount()
 })
 

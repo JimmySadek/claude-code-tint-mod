@@ -11,17 +11,17 @@
 //   - other open windows: a lighter tint and a thin ring in their own color;
 //   - the bottom area of each window (git bar, toolbar) keeps the app's own colors;
 //   - sidebar: stays neutral; repo names are colored, with the repo's emoji in front;
-//     threads show only their number (3️⃣ …), in the sidebar and in each window's top bar;
+//     thread titles stay as they are (their emoji says what each session is);
 //     the thread of the focused window gets its color instead of the app's grey, other open
 //     threads a thin bar, and hovering a thread tints it in its repo's color;
 //   - the loading dots and Claude's mark in each window take that window's color;
 //   - windows of one repo get shades by their number (1️⃣ base, 2️⃣ deeper, 3️⃣ paler, ...);
 //   - light and dark mode.
 //
-// A repo's color: the live label tint draws above each message box (see LIVE), else REPOS
-// (filled from ~/.claude/window-tint/repos.json when the snippet was saved), else learned from the page: the repo names in the sidebar and the emoji its threads'
-// titles start with, measured by drawing it on a canvas. So a new repo needs no new copy of this
-// script, and a saved DevTools snippet keeps working.
+// A window's color: the live label tint draws in each window's footer (see LIVE), else REPOS
+// (filled from ~/.claude/window-tint/repos.json when the snippet was saved), else the emoji its
+// thread's title starts with, measured by drawing it on a canvas. So a new repo needs no new copy
+// of this script, and a saved DevTools snippet keeps working.
 //
 // Built against Claude desktop 2.26454 (October 2026), measured with desktop/scan.js:
 //   window = .epitaxy-chat-panel, its session = [data-session-id] inside it;
@@ -60,7 +60,8 @@
   }
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
-  const TITLE = new RegExp(`^(${EMOJI})?(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))\\s`, 'u')   // "🧪3️⃣ " or "3️⃣ "
+  // A title's mark: "🧪 BAM · Topic", or the form before tint 1.9.0 with the window's number, "🧪3️⃣ Topic".
+  const TITLE = new RegExp(`^(${EMOJI})(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))?\\s`, 'u')
   const SHADES = [0, -0.42, 0.5, -0.62, 0.68]   // accent per window number, as window-tint's footer
   const DEPTH = [1, 1.8, 0.55, 2.4, 0.4]        // background depth per window number
   const FOCUSED = 1, OTHER = 0.55               // how much tint a window gets
@@ -137,34 +138,23 @@
   const leaves = root => [...root.querySelectorAll('span, div, p, a, button, h1, h2, h3')].filter(el => el.childElementCount === 0)
   const skip = el => !!el?.closest('.cm-editor, .prose, pre, code')   // never touch what Claude or you wrote
   const visible = el => el.getClientRects().length > 0
-  const textNodes = root => {
-    const out = []
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (n.data.trim()) out.push(n)
-    return out
-  }
   const rowOf = sid => document.querySelector(`[data-row-key="code:${CSS.escape(sid)}"]`)
   const pillOf = row => row.querySelector('.group') ?? row
 
-  // Thread titles by session id, as first seen with their emoji (they are shown shortened).
-  const titles = new Map()
-  const titleOf = sid => {
-    const text = rowOf(sid)?.querySelector('[data-row-label]')?.textContent.trim() ?? ''
-    if (text && (LEAD.test(text) || !titles.has(sid))) titles.set(sid, text)
-    return titles.get(sid) ?? ''
-  }
+  const titleOf = sid => rowOf(sid)?.querySelector('[data-row-label]')?.textContent.trim() ?? ''
 
-  // Repos learned from the sidebar, so a new repo needs no new copy of this script.
-  // Each repo heading is a row keyed "label:project-<folder path>", in the same section box
-  // (class group/section) as that repo's threads; a thread belongs to the last heading above it.
-  // The repo's emoji is the one its most recent thread's title starts with ("🗂️1️⃣ Repo-fit check"),
-  // skipping the plain color squares older versions used before an emoji was picked.
-  // A heading counts only when its name is the end of its folder path, ignoring case, spaces,
-  // "-" and "_" (the app shows BAM-Knowledge for a BAM_Knowledge folder), so never "No folder".
-  const SQUARES = new Set(['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '⬜'])
-  // A thread title's own color. An old color square is not a choice, so it gives none:
-  // "🟪1️⃣ title" in a folder without a repo stays uncolored instead of purple.
-  const titleColor = emoji => (emoji && !SQUARES.has(emoji) ? colorOf(emoji) : null)
+  // Which repo each sidebar thread is under. Each repo heading is a row keyed
+  // "label:project-<folder path>", in the same section box (class group/section) as that repo's
+  // threads; a thread belongs to the last heading above it. A heading counts only when its name
+  // is the end of its folder path, ignoring case, spaces, "-" and "_" (the app shows
+  // BAM-Knowledge for a BAM_Knowledge folder), so never "No folder".
+  // Colors are never learned from the sidebar: a title's emoji may be a role (💬 a side chat,
+  // 🔧 a helper) or another project's, not the repo's. The live labels say each repo's look.
+  const SQUARES = new Set(['🟥', '🟧', '🟨', '🟩', '🟦', '🟪', '🟫', '⬛', '⬜', '🩷'])
+  const ROLES = new Set(['💬', '🔧'])
+  // A thread title's own color. A color square is not a choice and a role mark is no repo's,
+  // so they give none: "🟪 title" in a folder without a repo stays uncolored instead of purple.
+  const titleColor = emoji => (emoji && !SQUARES.has(emoji) && !ROLES.has(emoji) ? colorOf(emoji) : null)
   const plain = text => bare(text.replace(/[\p{Co}\p{Cf}]/gu, ''))   // icon glyphs and invisible marks out
   const headingOf = row => {
     const section = row.closest('[class*="group/section"]')
@@ -177,19 +167,13 @@
     }
     return name
   }
-  const learn = () => {
-    const learned = {}
+  const headings = () => {
     const bySid = new Map()
     for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
       const name = headingOf(row)
-      if (!name) continue
-      const sid = row.getAttribute('data-row-key').slice(5)
-      bySid.set(sid, name)
-      const emoji = TITLE.exec(titleOf(sid))?.[1]
-      if (!emoji || REPOS[name] || (learned[name] && !SQUARES.has(learned[name][1]))) continue
-      if (!learned[name] || !SQUARES.has(emoji)) learned[name] = [colorOf(emoji), emoji]
+      if (name) bySid.set(row.getAttribute('data-row-key').slice(5), name)
     }
-    return { learned, bySid }
+    return bySid
   }
   let known = REPOS, repoOfSid = new Map()
 
@@ -202,10 +186,15 @@
       const sid = panel.querySelector('[data-session-id]')?.getAttribute('data-session-id')
       if (!sid) continue
       const m = TITLE.exec(titleOf(sid))
-      if (!repoBySid.get(sid)) repoBySid.set(sid, leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null)
-      const fromSidebar = repoOfSid.get(sid)
-      const own = ownOf(panel)   // the window's own label: no sidebar needed
-      const repo = (own && known[own[0]] ? own[0] : null) ?? repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
+      const own = ownOf(panel)   // the window's own label: no sidebar needed, and no scan
+      let repo = own && known[own[0]] ? own[0] : null
+      if (!repo) {
+        // A saved repo name shown in the window (its header chip), looked for once per session:
+        // a miss is kept too, so a window of an unknown repo is not scanned on every repaint.
+        if (!repoBySid.has(sid)) repoBySid.set(sid, leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null)
+        const fromSidebar = repoOfSid.get(sid)
+        repo = repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
+      }
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
       if (color) windows.set(panel, { color, n: Number(own?.[1] ?? m?.[2] ?? m?.[3] ?? 1) || 1, sid })
     }
@@ -292,23 +281,11 @@
     set(el, '--wt-w2', wash(info, 0.10, weight))
     set(el, '--wt-w3', wash(info, 0.24, weight))
   }
-  const shortened = new Map()   // text node -> its original text, put back when turned off
-  const shorten = (node, text) => {
-    if (text === node.data || !text.trim()) return
-    if (!shortened.has(node)) shortened.set(node, node.data)
-    node.data = text
-  }
-  const noEmoji = text => text
-    .replace(new RegExp(`^(\\s*)(?:${EMOJI}\\s*)+`, 'u'), '$1')
-    .replace(/^(\s*(?:[0-9]️?⃣|[1-9][0-9]))\s*│\s*/u, '$1 ')   // older "🟦🍉1️⃣ │ title"
   let focus = null, rows = 0
 
-  let learned = {}
   const paint = () => {
-    const sidebar = learn()
-    learned = sidebar.learned
-    known = { ...learned, ...REPOS, ...live() }
-    repoOfSid = sidebar.bySid
+    known = { ...REPOS, ...live() }
+    repoOfSid = headings()
     const windows = findWindows()
     const active = document.activeElement && [...windows.keys()].find(p => p.contains(document.activeElement))
     if (active) focus = active
@@ -318,8 +295,16 @@
     // can be a different box: the old one must lose its ring even when it is still in use for
     // something else (else rings double up).
     const rings = new Set()
+    // Layout first, then the writes: a read between writes makes the page lay itself out again.
+    const layout = new Map()
+    for (const panel of windows.keys()) {
+      const slot = slotOf(panel)
+      layout.set(panel, { ...slot, isStatic: getComputedStyle(slot.host).position === 'static', dock: dockOf(panel), input: inputOf(panel) })
+    }
+    const [s0, s1, s2, s3] = base()
 
     for (const [panel, info] of windows) {
+      const { host, room, isStatic, dock, input } = layout.get(panel)
       sizes?.observe(panel)
       const isFocused = panel === focus
       const weight = isFocused ? FOCUSED : OTHER
@@ -334,9 +319,8 @@
       seen.add(panel)
 
       // The ring: a top layer (::after) on the slot, GAP px outside the window's edge.
-      const { host, room } = slotOf(panel)
       host.setAttribute('data-wt-ring', '')
-      if (getComputedStyle(host).position === 'static') set(host, 'position', 'relative')
+      if (isStatic) set(host, 'position', 'relative')
       sizes?.observe(host)
       if (room) {
         for (const side of ['t', 'l', 'r', 'b']) set(host, `--wt-${side}`, `${Math.max(0, Math.round(room[side] - Math.min(GAP, room[side])))}px`)
@@ -351,25 +335,12 @@
       rings.add(host)
       seen.add(host)
 
-      // Top bar title: number only (the repo chip beside it keeps its emoji).
-      const top = panel.getBoundingClientRect().top
-      const dockBox = panel.querySelector('.epitaxy-prompt')
-      for (const node of textNodes(panel)) {
-        if (!TITLE.test(node.data.trim()) || !LEAD.test(node.data.trim())) continue
-        const el = node.parentElement
-        if (!el || skip(el) || dockBox?.contains(el) || el.getBoundingClientRect().top > top + 60) continue
-        shorten(node, noEmoji(node.data))
-      }
-
       // Bottom area: the app's colors; the text input inside it keeps the window's tint.
-      const dock = dockOf(panel)
       if (dock) {
-        const [s0, s1, s2, s3] = base()
         set(dock, '--wt-w0', s0); set(dock, '--wt-w1', s1); set(dock, '--wt-w2', s2); set(dock, '--wt-w3', s3)
         set(dock, 'background-color', s1)
         seen.add(dock)
       }
-      const input = inputOf(panel)
       if (input) {
         tint(input, info, weight)
         set(input, 'outline', isFocused ? `1.5px solid ${accent(info)}` : 'none')
@@ -392,12 +363,11 @@
       labels.push(el)
     }
 
-    // Sidebar threads: number only; hover in the repo's color (its heading, else the title emoji).
+    // Sidebar threads: hover in the repo's color (its heading, else the title emoji).
     for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
-      const sid = row.getAttribute('data-row-key').slice(5)
-      const title = titleOf(sid)
       const label = row.querySelector('[data-row-label]')
       if (!label) continue
+      const title = label.textContent.trim()
       let group = row.parentElement, heading = null
       for (let i = 0; group && i < 6; i++, group = group.parentElement) {
         const inside = labels.filter(l => group.contains(l) && !row.contains(l))
@@ -410,7 +380,6 @@
         set(row, '--wt-hover', wash({ color: hoverColor, n: 1 }, 0.16, 1))
         seen.add(row)
       }
-      for (const node of textNodes(label)) shorten(node, noEmoji(node.data))
     }
 
     // Open threads: their color instead of the app's grey; the focused one clearly.
@@ -441,19 +410,44 @@
     for (const el of [...touched.keys()]) if (!seen.has(el)) clear(el)
   }
 
-  // Redraw at most every 0.4 s while the app changes, and when focus or size changes.
+  // Redraw at most every 0.4 s while the app changes, and when focus or size changes. A failed
+  // repaint is reported and the next change tries again, so one bad paint never leaves it stuck.
   let timer = null
-  const soon = () => { if (!timer) timer = setTimeout(() => { timer = null; paint() }, 400) }
-  const observer = new MutationObserver(soon)
+  const safePaint = () => { try { paint() } catch (error) { console.warn('window-tint: repaint failed', error) } }
+  const soon = () => { if (!timer) timer = setTimeout(() => { timer = null; safePaint() }, 400) }
+  // Only changes a repaint can use: windows, sessions, sidebar rows and live labels coming or
+  // going, and anything outside the windows (the sidebar). Inside a window the conversation
+  // (Claude's streamed text, tool output, what you type) changes many times a second and is
+  // never painted, so it is ignored.
+  const KEY = `.epitaxy-chat-panel, [data-session-id], .epitaxy-prompt, [data-cds="ChatComposer"], [data-row-key], ${LIVE_SEL}`
+  const QUIET = '.cm-editor, [contenteditable="true"], .xterm'
+  const counts = node => node.nodeType === 1 && (node.matches(KEY) || !!node.querySelector(KEY))
+  const isLive = value => (value ?? '').startsWith(LIVE)
+  const matters = record => {
+    if (record.type === 'attributes') {
+      if (record.attributeName === 'alt' || record.attributeName === 'aria-label') {
+        return isLive(record.target.getAttribute(record.attributeName)) || isLive(record.oldValue)
+      }
+      return true   // data-session-id, data-row-key
+    }
+    const el = record.target.nodeType === 1 ? record.target : record.target.parentElement
+    if (!el || el.closest(QUIET)) return false
+    if (!el.closest('.epitaxy-chat-panel')) return true
+    return record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(counts)
+  }
+  const observer = new MutationObserver(records => { if (records.some(matters)) soon() })
   // Size changes without any page change (a side panel closed, a splitter dragged) redraw too.
   const sizes = 'ResizeObserver' in window ? new ResizeObserver(soon) : null
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+  observer.observe(document.body, {
+    childList: true, subtree: true, characterData: true,
+    attributes: true, attributeOldValue: true, attributeFilter: ['alt', 'aria-label', 'data-session-id', 'data-row-key'],
+  })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
   document.addEventListener('focusin', soon)
   document.addEventListener('mousedown', soon)
   window.addEventListener('resize', soon)
-  paint()
 
+  // Set before the first paint, so even a failed one can be turned off by the next Run.
   window.__windowTint = {
     off() {
       observer.disconnect()
@@ -464,12 +458,10 @@
       clearTimeout(timer)
       style.remove()
       for (const el of [...touched.keys()]) clear(el)
-      for (const [node, original] of shortened) if (node.isConnected) node.data = original
       delete window.__windowTint
     },
   }
+  safePaint()
   const tinted = [...touched.keys()].filter(el => el.hasAttribute('data-wt-tint')).length
-  const names = Object.entries(learned).map(([name, [, emoji]]) => `${emoji} ${name}`)
-  return `window-tint on · ${tinted} window(s) · ${rows} open thread(s) · ${shortened.size} title(s) shortened` +
-    (names.length ? ` · learned from the sidebar: ${names.join(', ')}` : '')
+  return `window-tint on · ${tinted} window(s) · ${rows} open thread(s)`
 })()

@@ -6,7 +6,8 @@
 // to your clipboard. Compare it with the selectors at the top of desktop/tint.js.
 (() => {
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
-  const TITLE = new RegExp(`^(${EMOJI})?(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))\\s`, 'u')
+  // A tint title: "🧪 BAM · Topic", or the form before tint 1.9.0, "🧪3️⃣ Topic" (as desktop/tint.js).
+  const TITLE = new RegExp(`^(${EMOJI})(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))?\\s`, 'u')
   const COMPOSER = '[contenteditable="true"], textarea'
   const visible = el => el.getClientRects().length > 0
   const short = el => {

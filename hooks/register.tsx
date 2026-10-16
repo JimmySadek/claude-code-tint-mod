@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, FsEntry, Register, RenderSurface } from 'claude-code'
+import type { EngineInterface, FsEntry, Register, RenderSurface, Timer } from 'claude-code'
 
 // Every window of a repository shares one identity: an emoji that says what
 // the repo is, chosen once by Claude, and a color measured from that emoji as
@@ -418,24 +418,40 @@ async function readJson<T>($: EngineInterface, path: string): Promise<T | null> 
   }
 }
 
+// desktop/tint.js as this copy of the mod ships it: read once, since it never changes while loaded.
+let tintSource: string | null = null
+async function tintSourceOf($: EngineInterface): Promise<string | null> {
+  tintSource ??= await $.fs.read(`${$.plugin.root}/desktop/tint.js`).catch(() => null)
+  return tintSource
+}
+
 // desktop/tint.js with every repo's color filled in (kept between its /*REPOS*/ marks).
 async function tintScript($: EngineInterface): Promise<string | null> {
-  const source = await $.fs.read(`${$.plugin.root}/desktop/tint.js`).catch(() => null)
+  const source = await tintSourceOf($)
   if (source === null) return null
   return source.replace(REPOS_PART, `/*REPOS*/${JSON.stringify(desktopRepos(await readChoices($)))}/*REPOS*/`)
 }
 
-// The "tint" snippet saved in the desktop app's DevTools, or null when there is none.
+// The "tint" snippet saved in the desktop app's DevTools, or null when there is none. The
+// settings file is large (about 100 KB) and changes rarely, so it is read again only when its
+// modification time changes; where that cannot be told, every time.
+let savedCache: { mtimeMs: number; snippet: string | null } | null = null
 async function savedSnippet($: EngineInterface): Promise<string | null> {
   const home = (await $.env.get('HOME')) ?? ''
+  const path = `${home}/${APP_SUPPORT}/Preferences`
+  const stat = await $.fs.stat(path).catch(() => null)
+  if (stat !== null && savedCache?.mtimeMs === stat.mtimeMs) return savedCache.snippet
   type Prefs = { electron?: { devtools?: { preferences?: Record<string, string> } } }
-  const prefs = await readJson<Prefs>($, `${home}/${APP_SUPPORT}/Preferences`)
+  const prefs = await readJson<Prefs>($, path)
+  let snippet: string | null = null
   try {
     const snippets = JSON.parse(prefs?.electron?.devtools?.preferences?.['script-snippets'] ?? '[]') as { name?: string; content?: string }[]
-    return snippets.find(item => item.name === 'tint')?.content ?? null
+    snippet = snippets.find(item => item.name === 'tint')?.content ?? null
   } catch {
-    return null
+    snippet = null
   }
+  savedCache = stat === null ? null : { mtimeMs: stat.mtimeMs, snippet }
+  return snippet
 }
 
 // What the person answered in the desktop band, shared by every window (desktop.json):
@@ -457,10 +473,18 @@ async function saveDesktopState($: EngineInterface, change: DesktopState): Promi
 
 // When the desktop app last started, as `ps` prints it, or null when it is not running.
 // A new value means the page reloaded, so the tint is off until it is run again.
+// An app start ends the sessions it runs, so the answer is kept: asked again at each
+// session start, and after APP_CHECK_MS in case a session outlives the app.
+const APP_CHECK_MS = 10 * 60_000
+let appStart: { checkedAt: number; value: string | null } | null = null
 async function appStarted($: EngineInterface): Promise<string | null> {
-  const out = await $.process.run(['ps', '-axo', 'lstart=,comm=']).catch(() => null)
-  const line = out?.stdout.split('\n').find(row => row.trimEnd().endsWith('/Claude.app/Contents/MacOS/Claude'))
-  return line ? line.slice(0, 24).trim() : null
+  const now = await $.clock.now()
+  if (appStart !== null && now - appStart.checkedAt < APP_CHECK_MS) return appStart.value
+  const out = await $.process.run(['ps', '-axo', 'lstart=,comm='], { timeoutMs: 5_000 }).catch(() => null)
+  if (out === null) return appStart?.value ?? null
+  const line = out.stdout.split('\n').find(row => row.trimEnd().endsWith('/Claude.app/Contents/MacOS/Claude'))
+  appStart = { checkedAt: now, value: line ? line.slice(0, 24).trim() : null }
+  return appStart.value
 }
 
 // A mark for the mod's script, repo colors left out: the script learns them itself.
@@ -472,7 +496,8 @@ const scriptMark = (script: string) => hash(script.replace(REPOS_PART, ''), 7).t
 async function refreshOffer($: EngineInterface): Promise<void> {
   if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return
   const saved = await savedSnippet($)
-  const script = await tintScript($)
+  // Repo colors play no part in the mark, so the plain source does (no repos.json read).
+  const script = await tintSourceOf($)
   const state = await desktopState($)
   let offer: 'install' | 'update' | 'remind' | null = null
   if (script === null) offer = null
@@ -648,11 +673,6 @@ async function heartbeat($: EngineInterface, ended = false): Promise<void> {
   await $.fs.write(`${await folder($)}/windows/${id}.json`, JSON.stringify(record))
 }
 
-async function loadChoice($: EngineInterface, key: string): Promise<void> {
-  await applyChoice($, key)
-  await refreshStatus($)
-}
-
 async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const all = await readChoices($)
   const choice = all[key] ?? {}
@@ -783,8 +803,8 @@ async function titleNudge($: EngineInterface, current: string | undefined, isOwn
 }
 
 // No status line under the prompt: the window title, the desktop tint and the terminal
-// strip already show the repo and number. Clears a line an older version left.
-async function refreshStatus($: EngineInterface): Promise<void> {
+// strip already show the repo and number. Clears, once at start, a line an older version left.
+async function clearStatus($: EngineInterface): Promise<void> {
   $.ui.status(undefined)
 }
 
@@ -904,7 +924,7 @@ async function pickIdentity($: EngineInterface, key: string): Promise<RepoChoice
   const derived = (await emojiColor($, emoji)) ?? picked.color
   const change: RepoChoice = { icon: emoji, color: mine.color ?? derived }
   await saveChoice($, key, change)
-  await loadChoice($, key)
+  await applyChoice($, key)
   return change
 }
 
@@ -920,7 +940,7 @@ async function saveLook($: EngineInterface, key: string, change: Look): Promise<
     (change.color !== undefined && change.color !== mine.color)
   const previous: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
   await saveChoice($, key, isNew && (mine.icon || mine.color) ? { ...change, previous } : change)
-  await loadChoice($, key)
+  await applyChoice($, key)
 }
 
 // Back to the look before the last change; a second undo swaps them again.
@@ -931,7 +951,7 @@ async function undoLook($: EngineInterface, key: string): Promise<Look | null> {
   if (!back) return null
   const now: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
   await saveChoice($, key, { icon: back.icon, color: back.color, manualColor: back.manualColor, previous: now })
-  await loadChoice($, key)
+  await applyChoice($, key)
   return back
 }
 
@@ -1000,7 +1020,7 @@ async function askClaude($: EngineInterface, key: string, typed: string, task: '
 async function nextColor($: EngineInterface, key: string): Promise<void> {
   const now = nearestName((await read($, color)) ?? autoColor(key))
   await saveChoice($, key, { color: NAMES[(NAMES.indexOf(now) + 1) % NAMES.length] })
-  await loadChoice($, key)
+  await applyChoice($, key)
 }
 
 // The app's sidebar shows a repo by its folder name, which can differ from the remote's
@@ -1070,6 +1090,10 @@ const UPDATE_COMMAND = `/plugin update tint@${MARKETPLACE}`
 const RELEASES_API = 'https://api.github.com/repos/JimmySadek/claude-code-tint-mod/releases/latest'
 const UPDATE_STATE = 'update.json'
 const CHECK_MS = 6 * 60 * 60 * 1000   // a release shows the same day; ~4 small requests a day
+const FETCH_TIMEOUT_MS = 10_000
+// `claude plugin` fetches from git; a stalled network must not hold the command for good.
+const MARKET_TIMEOUT_MS = 60_000
+const UPDATE_TIMEOUT_MS = 120_000
 type UpdateState = { checkedAt?: number; latest?: string; later?: string }
 
 const isNewer = (a: string, b: string) => {
@@ -1098,8 +1122,18 @@ async function checkUpdate($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   let latest = state.latest
   if (state.checkedAt === undefined || now - state.checkedAt >= CHECK_MS) {
-    const reply = await $.http.fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' } }).catch(() => null)
-    const tag = reply?.ok ? (JSON.parse(reply.text) as { tag_name?: string }).tag_name : undefined
+    // The fetch has no timeout of its own: a stalled answer counts as none after FETCH_TIMEOUT_MS.
+    const stop = new AbortController()
+    const reply = await Promise.race([
+      $.http.fetch(RELEASES_API, { headers: { accept: 'application/vnd.github+json' } }),
+      $.clock.sleep(FETCH_TIMEOUT_MS, { signal: stop.signal }).then(() => null, () => null),
+    ]).catch(() => null).finally(() => stop.abort())
+    let tag: string | undefined
+    try {
+      tag = reply?.ok ? (JSON.parse(reply.text) as { tag_name?: string }).tag_name : undefined
+    } catch {
+      tag = undefined
+    }
     if (tag) latest = tag.replace(/^v/, '')
     await $.process.run(['mkdir', '-p', await folder($)]).catch(() => null)
     await $.fs.write(path, JSON.stringify({ ...state, checkedAt: now, latest }))
@@ -1116,8 +1150,8 @@ async function updateTint($: EngineInterface): Promise<string> {
   await update($, showAutoHow, () => false)
   // Refresh the local copy of tint's marketplace first: without it, an update right after a
   // release can still read the old version and say tint is up to date.
-  await $.process.run(['claude', 'plugin', 'marketplace', 'update', MARKETPLACE]).catch(() => null)
-  const run = await $.process.run(['claude', 'plugin', 'update', `tint@${MARKETPLACE}`]).catch(() => null)
+  await $.process.run(['claude', 'plugin', 'marketplace', 'update', MARKETPLACE], { timeoutMs: MARKET_TIMEOUT_MS }).catch(() => null)
+  const run = await $.process.run(['claude', 'plugin', 'update', `tint@${MARKETPLACE}`], { timeoutMs: UPDATE_TIMEOUT_MS }).catch(() => null)
   if (run?.exitCode === 0) return 'tint is up to date. Type /reload-plugins (or start a new session) to use the new version.'
   // The desktop app alone has no claude command; its own plugin page has an Update button.
   const isDesktop = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')
@@ -1184,6 +1218,28 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
   return { text: desktopStarted(copied.isCopied ? null : line, false), isOpened: false }
 }
 
+// One step of the band's color clock, and the countdown of the reminder or a lone update notice.
+async function glowTick($: EngineInterface): Promise<void> {
+  const offer = await read($, desktopOffer)
+  const fresh = await read($, newVersion)
+  if (offer === null && fresh === null) return
+  await update($, glow, n => n + 1)
+  // On the desktop the reminder and a lone update notice count down.
+  const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
+    (offer === 'remind' || (offer === null && fresh !== null))
+  if (!timed) return
+  const since = await read($, remindSince)
+  const now = await $.clock.now()
+  if (since === null) {
+    if (remindDrawn) await update($, remindSince, () => now)
+  } else if (now - since >= REMIND_MS) {
+    await (offer === 'remind' ? remindLater($) : bandDone($))
+  }
+}
+
+// The clocks startUp started, so the next one cancels them (each tick's errors are caught).
+let timers: Timer[] = []
+
 // Whether this loaded copy of the module has run startUp. Module variables start over at every
 // load, so false means this copy has no band, no timers and no command yet. /reload-plugins
 // loads a new copy into an open session; on 2026-10-12 (desktop app, an update installed from
@@ -1229,6 +1285,10 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     },
   }).catch(() => null)
 
+  // A second session.start in this copy replaces the clocks instead of running them twice.
+  for (const timer of timers) timer.cancel()
+  timers = []
+  appStart = null
   try {
     const key = await repoKey($)
     const now = await $.clock.now()
@@ -1238,30 +1298,14 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     void refreshOffer($).catch(() => null)
     void checkUpdate($).catch(() => null)
     // The band's color clock runs only while the band shows, so it costs nothing otherwise.
-    $.clock.every(GLOW_MS, async () => {
-      const offer = await read($, desktopOffer)
-      const fresh = await read($, newVersion)
-      if (offer === null && fresh === null) return
-      await update($, glow, n => n + 1)
-      // On the desktop the reminder and a lone update notice count down.
-      const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
-        (offer === 'remind' || (offer === null && fresh !== null))
-      if (!timed) return
-      const since = await read($, remindSince)
-      const now = await $.clock.now()
-      if (since === null) {
-        if (remindDrawn) await update($, remindSince, () => now)
-      } else if (now - since >= REMIND_MS) {
-        await (offer === 'remind' ? remindLater($) : bandDone($))
-      }
-    })
+    timers.push($.clock.every(GLOW_MS, () => void glowTick($).catch(() => undefined)))
     void rememberFolder($, key).catch(() => null)
     const n = await claimNumber($, key, await $.session.id(), now)
     await update($, repo, () => key)
     await update($, number, () => n)
-    await loadChoice($, key)
+    await applyChoice($, key)
     await heartbeat($)
-    await refreshStatus($)
+    await clearStatus($)
     // The first window of a repo without an identity asks Claude for one in
     // the background; the hashed color shows until it is saved. Under the
     // REPL that happens now. The desktop app runs sessions through the SDK
@@ -1279,13 +1323,12 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
       await $.command.run({ command: 'color', args: barColor }).catch(() => undefined)
     }
     // Stay counted, and pick up changes made in other windows of the repo.
-    $.clock.every(HEARTBEAT_MS, async () => {
+    timers.push($.clock.every(HEARTBEAT_MS, () => void (async () => {
       await heartbeat($)
-      await recheckNumber($, key)
-      await loadChoice($, key)
-      await refreshStatus($)
-      await refreshOffer($).catch(() => null)
-    })
+      await recheckNumber($, key).catch(() => undefined)
+      await applyChoice($, key)
+      await refreshOffer($)
+    })().catch(() => undefined)))
   } catch (error) {
     $.ui.toast(`window-tint: ${String(error)}`)
   }
@@ -1331,11 +1374,10 @@ async function setLook($: EngineInterface, input: SetInput): Promise<{ result: s
   }
   if (input.frame !== undefined || input.pattern !== undefined) {
     await saveChoice($, key, { ...(input.frame !== undefined ? { frame: input.frame } : {}), ...(input.pattern ? { pattern: input.pattern } : {}) })
-    await loadChoice($, key)
+    await applyChoice($, key)
     if (input.frame !== undefined) done.push(`Border around messages ${input.frame ? 'on' : 'off'} for ${key}.`)
     if (input.pattern) done.push(`Pattern is now ${input.pattern}.`)
   }
-  await refreshStatus($)
   if (done.length === 0) return { result: 'Nothing changed: give at least one field.' }
   // Only repo-wide changes reach the other windows; a name or hide is this window's alone.
   const isShared = input.undo || icon !== undefined || asked !== undefined || input.frame !== undefined || input.pattern !== undefined
@@ -1362,7 +1404,6 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
   }
   if (verb === 'off' || verb === 'on') {
     await update($, isHidden, () => verb === 'off')
-    await refreshStatus($)
     return { text: verb === 'off' ? 'Label, strip and border hidden. /mod_tint on brings them back.' : 'Label, strip and border shown.' }
   }
   if (verb === 'titles' || verb === 'title') {
@@ -1379,14 +1420,14 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     const wanted = rest.toLowerCase()
     if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
     await saveChoice($, key, { frame: wanted === 'on' })
-    await loadChoice($, key)
+    await applyChoice($, key)
     return { text: `Border around your messages is ${wanted} for ${key}. ${later}` }
   }
   if (verb === 'reset') {
     await saveChoice($, key, null)
     await update($, name, () => null)
     await update($, isHidden, () => false)
-    await loadChoice($, key)
+    await applyChoice($, key)
     const picked = await pickIdentity($, key)
     return {
       text: picked
@@ -1437,7 +1478,6 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
   }
   if (verb === 'name') {
     await update($, name, () => rest || null)
-    await refreshStatus($)
     return { text: rest ? `This window is now "${rest}".` : 'Window name cleared.' }
   }
   if (verb === 'icon') {
@@ -1452,7 +1492,7 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     const picked = asked || PATTERNS[(PATTERNS.indexOf(now as Pattern) + 1) % PATTERNS.length]!
     if (!isPattern(picked)) return await ask('intent')
     await saveChoice($, key, { pattern: picked })
-    await loadChoice($, key)
+    await applyChoice($, key)
     return { text: `Pattern for ${key} is now ${picked}. ${later}` }
   }
   if (verb === 'color' || isColor(verb)) {

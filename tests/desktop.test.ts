@@ -78,7 +78,11 @@ const prefsWith = (snippet?: string) => JSON.stringify({
 })
 
 function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1], files: Map<string, string>, openFails = false) {
-  const out = { copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][], ps: '', clock: undefined as unknown as ReturnType<typeof mock.clock> }
+  const out = {
+    copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][], ps: '', clock: undefined as unknown as ReturnType<typeof mock.clock>,
+    // Reads per path, and modification times for fs.stat (none: stat is refused, as where it cannot be told).
+    reads: new Map<string, number>(), writes: new Map<string, number>(), mtimes: new Map<string, number>(),
+  }
   const clock = mock.clock(on, { now: 1_000_000 })
   Object.assign(out, { clock })
   mock.env(on, { HOME })
@@ -87,11 +91,17 @@ function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...arg
   on('session.repo', () => ({ value: { root: '/work/lab-notes', remote: null, internal: false, name: null } }))
   on('session.surfaces', () => ({ value: ['desktop'] as never }))
   on('fs.read', ($, e) => {
+    out.reads.set(e.path, (out.reads.get(e.path) ?? 0) + 1)
     if (e.path.endsWith('/desktop/tint.js')) return { value: TEMPLATE }
     const text = files.get(e.path)
     return text === undefined ? { deny: 'ENOENT' } : { value: text }
   })
+  on('fs.stat', ($, e) => {
+    const mtimeMs = out.mtimes.get(e.path)
+    return mtimeMs === undefined ? { deny: 'ENOENT' } : { value: { kind: 'file', size: 1, mtimeMs, isLink: false } as never }
+  })
   on('fs.write', ($, e) => {
+    out.writes.set(e.path, (out.writes.get(e.path) ?? 0) + 1)
     files.set(e.path, e.text)
     return { value: undefined }
   })
@@ -350,5 +360,36 @@ test('desktop band: the reminder counts down 60 seconds, hides, and comes back a
   await out.clock.advance(30 * 60_000)
   expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
   await ui.unmount()
+})
+
+test('heartbeat cost: the app settings are read again only when they change, ps every 10 minutes, one clock each', async ($, on) => {
+  const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
+  const out = desktopWorld(on, files)
+  out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
+  out.mtimes.set(`${APP}/Preferences`, 1)
+  await $.session.start(START)
+  // A second start in the same copy replaces the clocks instead of running them twice.
+  await $.session.start(START)
+  const prefsReads = () => out.reads.get(`${APP}/Preferences`) ?? 0
+  const psRuns = () => out.runs.filter(argv => argv[0] === 'ps').length
+  const scriptReads = () => [...out.reads].filter(([path]) => path.endsWith('/desktop/tint.js')).reduce((sum, [, n]) => sum + n, 0)
+  const [prefs, ps, script] = [prefsReads(), psRuns(), scriptReads()]
+  await out.clock.advance(5 * 30_000 + 100)
+  // Five heartbeats: the settings file unchanged, so never read; ps not asked again; the script read once per copy.
+  expect(prefsReads()).toBe(prefs)
+  expect(psRuns()).toBe(ps)
+  expect(scriptReads()).toBe(script)
+  // The app saved its settings: read once more.
+  out.mtimes.set(`${APP}/Preferences`, 2)
+  await out.clock.advance(30_000)
+  expect(prefsReads()).toBe(prefs + 1)
+  // After 10 minutes, ps is asked again (a session that outlived an app start would see it).
+  await out.clock.advance(10 * 60_000)
+  expect(psRuns()).toBe(ps + 1)
+  // One heartbeat clock: the window record is written once per 30 seconds, not twice.
+  const record = () => out.writes.get(`${DIR}/windows/me.json`) ?? 0
+  const before = record()
+  await out.clock.advance(30_000)
+  expect(record() - before).toBe(1)
 })
 

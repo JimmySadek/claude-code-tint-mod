@@ -5,15 +5,16 @@ const DIR = `${HOME}/.claude/window-tint`
 const HOUR = 60 * 60 * 1000
 const NOW = 100 * HOUR
 
-test('ended windows older than a day are deleted; recent and open ones stay', async ($, on) => {
+test('windows not seen for a day are deleted, ended or not; recent ones stay', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   mock.env(on, { HOME })
 
   const files = new Map<string, string>([
     [`${DIR}/windows/ended-old.json`, JSON.stringify({ repo: 'matchday', n: 1, seen: NOW - 30 * HOUR, ended: true })],
     [`${DIR}/windows/ended-recent.json`, JSON.stringify({ repo: 'matchday', n: 2, seen: NOW - 2 * HOUR, ended: true })],
-    // Never marked ended (still open, or crashed): left alone however old.
-    [`${DIR}/windows/open-old.json`, JSON.stringify({ repo: 'claude-mods', n: 1, seen: 1 })],
+    // Never marked ended: a crash or force-quit 64 hours ago. An open window writes every 30 s.
+    [`${DIR}/windows/open-old.json`, JSON.stringify({ repo: 'claude-mods', n: 1, seen: NOW - 64 * HOUR })],
+    [`${DIR}/windows/open-recent.json`, JSON.stringify({ repo: 'matchday', n: 1, seen: NOW - 60_000 })],
   ])
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: '/work/claude-mods' }))
@@ -50,10 +51,11 @@ test('ended windows older than a day are deleted; recent and open ones stay', as
   await $.session.start({ cwd: '/work/claude-mods', surface: 'desktop', isInteractive: false })
   await clock.settle()
 
-  expect(runs.filter(argv => argv[0] === 'rm')).toEqual([['rm', '-f', `${DIR}/windows/ended-old.json`]])
+  expect(runs.filter(argv => argv[0] === 'rm')).toEqual([['rm', '-f', `${DIR}/windows/ended-old.json`, `${DIR}/windows/open-old.json`]])
   expect(files.has(`${DIR}/windows/ended-old.json`)).toBe(false)
+  expect(files.has(`${DIR}/windows/open-old.json`)).toBe(false)
   expect(files.has(`${DIR}/windows/ended-recent.json`)).toBe(true)
-  expect(files.has(`${DIR}/windows/open-old.json`)).toBe(true)
+  expect(files.has(`${DIR}/windows/open-recent.json`)).toBe(true)
   // This window still registers itself.
   expect(JSON.parse(files.get(`${DIR}/windows/me.json`)!).repo).toBe('claude-mods')
 })

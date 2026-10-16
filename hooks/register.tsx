@@ -77,8 +77,10 @@ const HEARTBEAT_MS = 30_000
 // Rows the person sent; notices, task reports and other sessions' messages get no border.
 const OWN_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 const STALE_MS = 120_000
-// Ended windows older than this are deleted from the shared folder.
+// Window records not seen for this long are deleted from the shared folder (ended, crashed or force-quit).
 const PRUNE_MS = 24 * 60 * 60 * 1000
+// How often a new window claims its number again when another took the same one at the same moment.
+const CLAIM_TRIES = 5
 const STRIP_W = 1600
 const STRIP_H = 40
 // How wide the docked strip asks to be; the prompt bar clips what it cannot fit.
@@ -120,7 +122,8 @@ const liveColors = atom({ plugin: 'tint', key: 'liveColors' } as const, null)
 const LIVE_TAG = 'tint-colors '
 const LIVE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
 
-type Window = { repo: string; n: number; seen: number; ended?: boolean }
+// since: when this window claimed n, so on a tie the earlier claim keeps it.
+type Window = { repo: string; n: number; seen: number; since?: number; ended?: boolean }
 // manualColor: set by /mod_tint color, so a new emoji does not replace it.
 // folders: other names the app shows for this repo (a clone or worktree folder), for /mod_tint css.
 // previous: the look before the last emoji or color change, so "go back" is one step.
@@ -555,8 +558,8 @@ async function saveChoice($: EngineInterface, key: string, change: RepoChoice | 
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
-// Delete records of windows that ended more than a day ago, any repository.
-// Open or crashed windows (never marked ended) are left alone.
+// Delete records of windows not seen for more than a day, any repository. An open window
+// writes its record every 30 seconds, so only ended, crashed or force-quit ones are that old.
 async function pruneWindows($: EngineInterface, now: number): Promise<void> {
   const dir = `${await folder($)}/windows`
   const entries = await $.fs.list(dir).catch(() => [])
@@ -564,33 +567,76 @@ async function pruneWindows($: EngineInterface, now: number): Promise<void> {
   for (const entry of entries) {
     if (!entry.name.endsWith('.json')) continue
     const other = await readJson<Window>($, `${dir}/${entry.name}`)
-    if (other?.ended && now - other.seen > PRUNE_MS) old.push(`${dir}/${entry.name}`)
+    if (other && now - other.seen > PRUNE_MS) old.push(`${dir}/${entry.name}`)
   }
-  if (old.length > 0) await $.process.run(['rm', '-f', ...old])
+  if (old.length > 0) await $.process.run(['rm', '-f', ...old], { timeoutMs: 5_000 })
 }
 
-// Keep this window's number if it still has one, else take the lowest free.
-async function claimNumber($: EngineInterface, key: string, id: string, now: number): Promise<number> {
+// This repo's window records, by session id.
+async function windowsOf($: EngineInterface, key: string): Promise<Map<string, Window>> {
   const dir = `${await folder($)}/windows`
-  const entries = await $.fs.list(dir).catch(() => [])
-  const taken = new Set<number>()
-  let mine: number | null = null
-
-  for (const entry of entries) {
+  const out = new Map<string, Window>()
+  for (const entry of await $.fs.list(dir).catch(() => [])) {
     if (!entry.name.endsWith('.json')) continue
     const other = await readJson<Window>($, `${dir}/${entry.name}`)
-    if (!other || other.repo !== key) continue
-    if (entry.name === `${id}.json`) {
-      mine = other.n
-      continue
-    }
-    if (!other.ended && now - other.seen < STALE_MS) taken.add(other.n)
+    if (other?.repo === key) out.set(entry.name.slice(0, -'.json'.length), other)
   }
+  return out
+}
 
-  if (mine !== null && !taken.has(mine)) return mine
-  let n = 1
-  while (taken.has(n)) n += 1
+const isLive = (other: Window, now: number) => !other.ended && now - other.seen < STALE_MS
+
+// Another open window of the repo with the same number and the better claim: claimed it
+// earlier, or at the same moment with the lower session id. Records from before 1.9.0 have
+// no claim time and count as earliest.
+function rivalOf(all: Map<string, Window>, id: string, n: number, since: number, now: number): boolean {
+  for (const [other, record] of all) {
+    if (other === id || record.n !== n || !isLive(record, now)) continue
+    const theirs = record.since ?? 0
+    if (theirs < since || (theirs === since && other < id)) return true
+  }
+  return false
+}
+
+// When this window claimed its number, for its records (see Window.since).
+let claimedSince = 0
+
+// Keep this window's number if it still has one, else take the lowest free. Two windows of a
+// repo can start at the same moment (parallel work rooms) and both find the same number free,
+// so the claim is written at once and checked again; the window with the weaker claim moves on.
+// The heartbeat checks again too (recheckNumber), for a claim written just after this check.
+async function claimNumber($: EngineInterface, key: string, id: string, now: number): Promise<number> {
+  const dir = `${await folder($)}/windows`
+  let all = await windowsOf($, key)
+  const mine = all.get(id)
+  const taken = new Set<number>()
+  for (const [other, record] of all) if (other !== id && isLive(record, now)) taken.add(record.n)
+  let n = mine && !taken.has(mine.n) ? mine.n : 1
+  // A window that keeps its number (a resumed session) keeps its claim time.
+  let since = mine && n === mine.n ? (mine.since ?? now) : now
+  for (let tries = 0; tries < CLAIM_TRIES; tries++) {
+    while (taken.has(n)) [n, since] = [n + 1, now]
+    await $.fs.write(`${dir}/${id}.json`, JSON.stringify({ repo: key, n, seen: now, since } satisfies Window))
+    all = await windowsOf($, key)
+    if (!rivalOf(all, id, n, since, now)) break
+    taken.add(n)
+    since = now
+  }
+  claimedSince = since
   return n
+}
+
+// The heartbeat's check: another window took this one's number with a better claim, so this
+// one takes the next free number. Its shade, strip and live label follow.
+async function recheckNumber($: EngineInterface, key: string): Promise<void> {
+  const n = await read($, number)
+  if (n === null) return
+  const id = await $.session.id()
+  const now = await $.clock.now()
+  if (!rivalOf(await windowsOf($, key), id, n, claimedSince, now)) return
+  const next = await claimNumber($, key, id, now)
+  await update($, number, () => next)
+  await applyChoice($, key)
 }
 
 async function heartbeat($: EngineInterface, ended = false): Promise<void> {
@@ -598,7 +644,7 @@ async function heartbeat($: EngineInterface, ended = false): Promise<void> {
   const n = await read($, number)
   if (key === null || n === null) return
   const id = await $.session.id()
-  const record: Window = { repo: key, n, seen: await $.clock.now(), ended }
+  const record: Window = { repo: key, n, seen: await $.clock.now(), since: claimedSince, ended }
   await $.fs.write(`${await folder($)}/windows/${id}.json`, JSON.stringify(record))
 }
 
@@ -1235,6 +1281,7 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     // Stay counted, and pick up changes made in other windows of the repo.
     $.clock.every(HEARTBEAT_MS, async () => {
       await heartbeat($)
+      await recheckNumber($, key)
       await loadChoice($, key)
       await refreshStatus($)
       await refreshOffer($).catch(() => null)

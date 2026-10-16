@@ -180,6 +180,7 @@
   // Windows: each visible .epitaxy-chat-panel and the session it shows.
   const repoBySid = new Map()   // session id -> { repo, at }: the repo name found in its window, or null
   const MISS_MS = 10_000
+  let retry = null
   const findWindows = () => {
     const windows = new Map()
     for (const panel of document.querySelectorAll('.epitaxy-chat-panel')) {
@@ -195,7 +196,10 @@
         // repaint, and a chip that shows up late is still found.
         const found = repoBySid.get(sid)
         if (!found || (found.repo === null && Date.now() - found.at > MISS_MS)) {
-          repoBySid.set(sid, { repo: leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null, at: Date.now() })
+          const repo = leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null
+          repoBySid.set(sid, { repo, at: Date.now() })
+          // A chip that shows up late causes no repaint of its own, so the next look is booked.
+          if (repo === null) retry ??= setTimeout(() => { retry = null; soon() }, MISS_MS + 50)
         }
         const fromSidebar = repoOfSid.get(sid)
         repo = repoBySid.get(sid).repo ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
@@ -461,6 +465,7 @@
       document.removeEventListener('mousedown', soon)
       window.removeEventListener('resize', soon)
       clearTimeout(timer)
+      clearTimeout(retry)
       style.remove()
       for (const el of [...touched.keys()]) clear(el)
       delete window.__windowTint

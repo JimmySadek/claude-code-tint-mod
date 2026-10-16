@@ -685,9 +685,11 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const choice = all[key] ?? {}
   const tag = LIVE_TAG + JSON.stringify({ repos: desktopRepos(all), window: [key, (await read($, number)) ?? 1] })
   if ((await read($, liveColors)) !== tag) await update($, liveColors, () => tag)
-  // Marks a title may lose: a color square, and any emoji this repo had before.
+  // Marks a title may lose: a color square, and any emoji this repo had before, unless another
+  // repo has it now (a work room of that repo named with it at birth keeps it).
   const before = [...(choice.pastIcons ?? []), ...(choice.previous?.icon ? [choice.previous.icon] : [])]
-  staleMarks = new Set([...SQUARE_MARKS, ...before.filter(each => !ROLE_MARKS.has(each))])
+  const inUse = new Set(Object.entries(all).filter(([other]) => other !== key).map(([, each]) => each.icon))
+  staleMarks = new Set([...SQUARE_MARKS, ...before.filter(each => !ROLE_MARKS.has(each) && !inUse.has(each))])
   const wanted = {
     color: choice.color ?? autoColor(key),
     // Only one emoji: anything else saved by hand would break the titles.

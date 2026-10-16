@@ -331,6 +331,14 @@ test('title migration: the old keycap form loses its number; a mark of its own i
   await $.command.run({ command: 'mod_tint', args: 'icon 🧫' } as never)
   expect(await title($, '🧪 Lab · Mod ideas')).toBe('🧫 Lab · Mod ideas')
   expect(await title($, '🔬 Lab · Mod ideas')).toBe('🧫 Lab · Mod ideas')
+  // A past emoji another repo has now is that repo's mark (one of its work rooms here): kept.
+  const now = saved(world)
+  world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...now, matchday: { icon: '🧪', color: '#22C55E' } }))
+  await world.clock.advance(31_000)
+  expect(await title($, '🧪 Matchday · Fix import')).toBe('🧪 Matchday · Fix import')
+  expect(await title($, '🔬 Lab · Mod ideas')).toBe('🧫 Lab · Mod ideas')
+  world.files.set(`${DIR}/repos.json`, JSON.stringify(now))
+  await world.clock.advance(30_000)
   // And after a reset, whatever emoji comes next.
   await $.command.run({ command: 'mod_tint', args: 'reset' } as never)
   expect(saved(world)['lab-notes'].pastIcons).toEqual(['🧪', '🔬', '🧫'])

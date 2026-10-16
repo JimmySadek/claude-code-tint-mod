@@ -34,6 +34,7 @@ function world(on: Parameters<Extract<Parameters<typeof test>[1], (...args: neve
   on('model.complete', () => ({ deny: 'offline' }))
   on('process.run', ($, e) => {
     out.runs.push([...e.argv])
+    if (e.argv[0] === 'mv') { files.set(e.argv[3]!, files.get(e.argv[2]!)!); files.delete(e.argv[2]!) }
     const stdout = e.argv[0] === 'ps' ? 'Fri Oct  9 03:36:30 2026     /Applications/Claude.app/Contents/MacOS/Claude\n' : ''
     return { value: { exitCode: out.failClaude && e.argv[0] === 'claude' ? 1 : 0, stdout, stderr: '' } } as never
   })

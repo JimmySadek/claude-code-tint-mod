@@ -38,6 +38,7 @@ test('ended windows older than a day are deleted; recent and open ones stay', as
     const argv = [...e.argv]
     runs.push(argv)
     if (argv[0] === 'rm') for (const path of argv.slice(2)) files.delete(path)
+    if (argv[0] === 'mv') { files.set(argv[3]!, files.get(argv[2]!)!); files.delete(argv[2]!) }
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))

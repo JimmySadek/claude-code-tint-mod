@@ -65,6 +65,7 @@ function setup(
       runs.push(argv)
       const ok = (stdout = '') => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
       if (argv[0] === 'swiftc') compiled = true
+      if (argv[0] === 'mv') { files.set(argv[3]!, files.get(argv[2]!)!); files.delete(argv[2]!) }
       if (!argv[0]!.endsWith('emoji-color-v1')) return ok()
       if (!compiled) return { deny: 'ENOENT' }
       return ok(measures[argv[1]!] ?? '{"color":null}')
@@ -341,6 +342,31 @@ test('the rename note asks for the new form and drops the old number', async ($,
   expect(note).toContain('"🧪 <Project> · <main topic>"')
 })
 
+test('an unreadable repos.json is never written over; saves go to a temporary file, then rename', async ($, on) => {
+  const world = setup(on, 'lab-notes', '{"emoji":"🧪","color":"#7C3AED"}', {}, {})
+  // Half a file, as a crash in the middle of an older write could leave it.
+  const broken = '{\n  "matchday": { "icon": "⚽", "color": "#22C55E" },\n  "lab-no'
+  world.files.set(`${DIR}/repos.json`, broken)
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  // The background pick found nothing to keep, but saved nothing over the other repos either.
+  expect(world.asked.length).toBe(1)
+  expect(world.files.get(`${DIR}/repos.json`)).toBe(broken)
+
+  const typed = await $.command.run({ command: 'mod_tint', args: 'icon 🔬', ...AT_PROMPT })
+  expect(typed.text).toContain('cannot be read')
+  const tool = await $.tool.call({ tool: 'mcp__tint__set', color: 'teal' } as never)
+  expect((tool as { deny?: string }).deny).toContain('cannot be read')
+  expect(world.files.get(`${DIR}/repos.json`)).toBe(broken)
+
+  // Fixed by hand: the next save works, whole, through a temporary file renamed over it.
+  world.files.set(`${DIR}/repos.json`, JSON.stringify({ matchday: { icon: '⚽', color: '#22C55E' } }))
+  await $.command.run({ command: 'mod_tint', args: 'icon 🔬', ...AT_PROMPT })
+  expect(saved(world)).toMatchObject({ matchday: { icon: '⚽' }, 'lab-notes': { icon: '🔬' } })
+  expect(world.runs).toContainEqual(['mv', '-f', `${DIR}/repos.json.me.tmp`, `${DIR}/repos.json`])
+  expect([...world.files.keys()].some(path => path.endsWith('.tmp'))).toBe(false)
+})
+
 const GREEN = '{"color":"#259F3E","share":0.99,"saturation":0.77,"brightness":0.63}'
 const DULL = '{"color":"#6C8B9C","share":0.99,"saturation":0.31,"brightness":0.61}'
 
@@ -355,7 +381,7 @@ test('measured: a vivid emoji gives the color, compiled once and kept per emoji'
   // The helper was built from the mod's own source, then run with the emoji.
   const compile = world.runs.find(argv => argv[0] === 'swiftc')!
   expect(compile[2]).toMatch(/helpers\/emoji-color\.swift$/)
-  expect(world.runs.at(-1)).toEqual([`${DIR}/emoji-color-v1`, '🧪'])
+  expect(world.runs.filter(argv => argv[0]!.endsWith('emoji-color-v1')).at(-1)).toEqual([`${DIR}/emoji-color-v1`, '🧪'])
 
   // The exact measured color draws the border.
   await $.command.run({ command: 'mod_tint', args: 'frame on', ...AT_PROMPT })

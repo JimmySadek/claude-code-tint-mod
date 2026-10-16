@@ -99,6 +99,7 @@ function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...arg
   on('model.complete', () => ({ deny: 'offline' }))
   on('process.run', ($, e) => {
     out.runs.push([...e.argv])
+    if (e.argv[0] === 'mv') { files.set(e.argv[3]!, files.get(e.argv[2]!)!); files.delete(e.argv[2]!) }
     return { value: { exitCode: openFails && e.argv[0] === 'open' ? 1 : 0, stdout: e.argv[0] === 'ps' ? out.ps : '', stderr: '' } } as never
   })
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))

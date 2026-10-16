@@ -520,12 +520,40 @@ async function readChoices($: EngineInterface): Promise<Record<string, RepoChoic
   return (await readJson<Record<string, RepoChoice>>($, `${await folder($)}/repos.json`)) ?? {}
 }
 
+// repos.json, read to change it: {} only when there is no file yet. A file that is there but
+// does not read as JSON is never written over, since the next save would keep only one repo
+// and every other repo's look would be gone.
+async function choicesToChange($: EngineInterface): Promise<Record<string, RepoChoice>> {
+  const path = `${await folder($)}/repos.json`
+  const text = await $.fs.read(path).catch(() => null)
+  if (text === null && !(await $.fs.exists(path).catch(() => false))) return {}
+  try {
+    const value: unknown = JSON.parse(text ?? '')
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, RepoChoice>
+  } catch {
+    // Not JSON: refused below.
+  }
+  throw new Error(`${path} cannot be read, so nothing was saved and it was left as it is. Fix or delete that file, then try again.`)
+}
+
+// Writes a whole file or nothing: a temporary file, then renamed over it, so a window reading
+// it at that moment never sees half of it. Where mv cannot run, the plain write, as before.
+async function writeWhole($: EngineInterface, path: string, text: string): Promise<void> {
+  const temporary = `${path}.${await $.session.id()}.tmp`
+  await $.fs.write(temporary, text)
+  if ((await $.process.run(['mv', '-f', temporary, path], { timeoutMs: 5_000 }).catch(() => null))?.exitCode === 0) return
+  await $.fs.write(path, text)
+  await $.process.run(['rm', '-f', temporary], { timeoutMs: 5_000 }).catch(() => null)
+}
+
 async function saveChoice($: EngineInterface, key: string, change: RepoChoice | null): Promise<void> {
-  const all = await readChoices($)
+  const all = await choicesToChange($)
   if (change === null) delete all[key]
   else all[key] = { ...all[key], ...change }
-  await $.fs.write(`${await folder($)}/repos.json`, JSON.stringify(all, null, 2))
+  await writeWhole($, `${await folder($)}/repos.json`, JSON.stringify(all, null, 2))
 }
+
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 // Delete records of windows that ended more than a day ago, any repository.
 // Open or crashed windows (never marked ended) are left alone.
@@ -1216,6 +1244,183 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
   }
 }
 
+type SetInput = {
+  icon?: string; color?: string; name?: string; hidden?: boolean; titles?: boolean; frame?: boolean; pattern?: string; undo?: boolean
+}
+
+// What SET_TOOL does with what the person chose.
+async function setLook($: EngineInterface, input: SetInput): Promise<{ result: string } | { deny: string }> {
+  const key = (await read($, repo)) ?? (await repoKey($))
+  const icon = input.icon?.trim()
+  const asked = input.color?.trim().toLowerCase()
+  if (icon === '') return { deny: 'icon is empty: give one emoji.' }
+  if (asked !== undefined && !isColor(asked)) return { deny: `color must be #RRGGBB or one of ${NAMES.join(', ')}.` }
+  if (input.pattern !== undefined && !isPattern(input.pattern)) return { deny: `pattern must be one of ${PATTERNS.join(', ')}.` }
+  const done: string[] = []
+  if (input.undo) {
+    const back = await undoLook($, key)
+    done.push(back ? `${key} is back to ${lookText(back)}.` : `${key} has no earlier look; nothing to undo.`)
+  }
+  if (icon !== undefined || asked !== undefined) {
+    const derived = icon !== undefined && asked === undefined ? await iconColor($, key, icon) : null
+    const change: Look = asked !== undefined
+      ? { ...(icon !== undefined ? { icon } : {}), color: asked, manualColor: true }
+      : derived ? { icon, color: derived } : { icon }
+    await saveLook($, key, change)
+    done.push(`${key} is now ${lookText((await readChoices($))[key] ?? {})}.`)
+  }
+  if (input.name !== undefined) {
+    const wanted = input.name.trim()
+    await update($, name, () => wanted || null)
+    done.push(wanted ? `This window is named "${wanted}".` : 'Window name cleared.')
+  }
+  if (input.hidden !== undefined) {
+    await update($, isHidden, () => input.hidden === true)
+    done.push(input.hidden ? 'Tint hidden in this window.' : 'Tint shown in this window.')
+  }
+  if (input.titles !== undefined) {
+    await update($, isTitling, () => input.titles === true)
+    done.push(input.titles ? 'Claude keeps this window\'s title on its main topic.' : 'Claude no longer renames this window.')
+  }
+  if (input.frame !== undefined || input.pattern !== undefined) {
+    await saveChoice($, key, { ...(input.frame !== undefined ? { frame: input.frame } : {}), ...(input.pattern ? { pattern: input.pattern } : {}) })
+    await loadChoice($, key)
+    if (input.frame !== undefined) done.push(`Border around messages ${input.frame ? 'on' : 'off'} for ${key}.`)
+    if (input.pattern) done.push(`Pattern is now ${input.pattern}.`)
+  }
+  await refreshStatus($)
+  if (done.length === 0) return { result: 'Nothing changed: give at least one field.' }
+  // Only repo-wide changes reach the other windows; a name or hide is this window's alone.
+  const isShared = input.undo || icon !== undefined || asked !== undefined || input.frame !== undefined || input.pattern !== undefined
+  return { result: isShared ? `${done.join(' ')} Other windows of the repository follow within 30 seconds.` : done.join(' ') }
+}
+
+// /mod_tint and its words.
+async function modTint($: EngineInterface, args: string): Promise<{ text: string }> {
+  await ensureStarted($).catch(() => undefined)
+  const key = (await read($, repo)) ?? (await repoKey($))
+  const words = args.trim().split(/\s+/).filter(Boolean)
+  const verb = (words[0] ?? '').toLowerCase()
+  const rest = words.slice(1).join(' ')
+  const later = 'Other windows of this repo follow within 30 seconds.'
+  // Anything that is not a clear command goes to Claude, which asks with a few choices.
+  const ask = async (task: 'repick' | 'intent') =>
+    (await askClaude($, key, args.trim(), task)) ? { text: 'Claude will ask you what you want.' } : { text: USAGE }
+
+  if (verb === 'help') {
+    return { text: USAGE }
+  }
+  if (verb === '') {
+    return await ask('intent')
+  }
+  if (verb === 'off' || verb === 'on') {
+    await update($, isHidden, () => verb === 'off')
+    await refreshStatus($)
+    return { text: verb === 'off' ? 'Label, strip and border hidden. /mod_tint on brings them back.' : 'Label, strip and border shown.' }
+  }
+  if (verb === 'titles' || verb === 'title') {
+    const wanted = rest.toLowerCase()
+    if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
+    await update($, isTitling, () => wanted === 'on')
+    return {
+      text: wanted === 'on'
+        ? `Claude checks this window's title every ${TITLE_EVERY} prompts and renames it when the main topic changes.`
+        : 'Claude no longer renames this window. /mod_tint titles on brings it back.',
+    }
+  }
+  if (verb === 'frame') {
+    const wanted = rest.toLowerCase()
+    if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
+    await saveChoice($, key, { frame: wanted === 'on' })
+    await loadChoice($, key)
+    return { text: `Border around your messages is ${wanted} for ${key}. ${later}` }
+  }
+  if (verb === 'reset') {
+    await saveChoice($, key, null)
+    await update($, name, () => null)
+    await update($, isHidden, () => false)
+    await loadChoice($, key)
+    const picked = await pickIdentity($, key)
+    return {
+      text: picked
+        ? `Choices for ${key} forgotten. Claude picked ${picked.icon} ${picked.color}. ${later}`
+        : `Choices for ${key} forgotten. Claude could not pick right now, so the automatic color shows; it tries again next session.`,
+    }
+  }
+  if (verb === 'update') {
+    return { text: await updateTint($) }
+  }
+  if (verb === 'repick') {
+    return await ask('repick')
+  }
+  if (verb === 'undo') {
+    const back = await undoLook($, key)
+    return { text: back ? `${key} is back to ${lookText(back)}. ${later}` : `${key} has no earlier look to go back to.` }
+  }
+  if (verb === 'desktop') {
+    const home = (await $.env.get('HOME')) ?? ''
+    const prefs = `${home}/${APP_SUPPORT}/Preferences`
+    const devSettings = `${home}/${APP_SUPPORT}/developer_settings.json`
+    if ((await $.fs.read(prefs).catch(() => null)) === null) {
+      return { text: 'The Claude desktop app\'s settings were not found on this computer (it works on macOS). `/mod_tint css` copies the script to paste by hand.' }
+    }
+    const how = rest.toLowerCase()
+    if (how !== 'go' && how !== 'line') {
+      const devMode = await readJson<{ allowDevTools?: boolean }>($, devSettings)
+      const saved = await savedSnippet($)
+      const current = await tintScript($)
+      const plain = (text: string) => text.replace(REPOS_PART, '')
+      if (saved !== null && current !== null && devMode?.allowDevTools === true && plain(saved) === plain(current)) return { text: DESKTOP_RUN }
+      return { text: desktopPlan(devMode?.allowDevTools === true, saved !== null) }
+    }
+    return { text: (await installDesktop($, how)).text }
+  }
+  if (verb === 'css') {
+    const isScan = rest.toLowerCase() === 'scan'
+    const file = `${$.plugin.root}/desktop/${isScan ? 'scan' : 'tint'}.js`
+    const text = isScan ? await $.fs.read(file).catch(() => null) : await tintScript($)
+    if (text === null) return { text: `window-tint: could not read ${file}.` }
+    const copied = await $.ui.copy({ text })
+    if (!copied.isCopied) return { text: `Could not copy here. The script is ${file}.` }
+    return {
+      text: isScan
+        ? 'Layout scan copied (look-only). In the desktop app: ⌥⌘I, Console, paste, Enter; it copies a report to paste where you need it.'
+        : DESKTOP_STEPS,
+    }
+  }
+  if (verb === 'name') {
+    await update($, name, () => rest || null)
+    await refreshStatus($)
+    return { text: rest ? `This window is now "${rest}".` : 'Window name cleared.' }
+  }
+  if (verb === 'icon') {
+    if (!rest) return await ask('repick')
+    const derived = await iconColor($, key, rest)
+    await saveLook($, key, derived ? { icon: rest, color: derived } : { icon: rest })
+    return { text: `Emoji for ${key} is now ${rest}${derived ? `, color ${derived}` : ''}. ${later}` }
+  }
+  if (verb === 'pattern' || isPattern(verb)) {
+    const asked = verb === 'pattern' ? rest.toLowerCase() : verb
+    const now = (await read($, pattern)) ?? autoPattern(key)
+    const picked = asked || PATTERNS[(PATTERNS.indexOf(now as Pattern) + 1) % PATTERNS.length]!
+    if (!isPattern(picked)) return await ask('intent')
+    await saveChoice($, key, { pattern: picked })
+    await loadChoice($, key)
+    return { text: `Pattern for ${key} is now ${picked}. ${later}` }
+  }
+  if (verb === 'color' || isColor(verb)) {
+    const asked = verb === 'color' ? rest.toLowerCase() : verb
+    const now = nearestName((await read($, color)) ?? autoColor(key))
+    const picked = asked || NAMES[(NAMES.indexOf(now) + 1) % NAMES.length]!
+    if (!isColor(picked)) return await ask('intent')
+    await saveLook($, key, { color: picked, manualColor: true })
+    return { text: `Color for ${key} is now ${picked}. ${later}` }
+  }
+
+  // Anything else (a lone emoji, a typo, "go back", "make it green") Claude works out.
+  return await ask('intent')
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await startUp($, e.isInteractive)
@@ -1257,180 +1462,13 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'mod_tint' }, async ($, e) => {
-    await ensureStarted($).catch(() => undefined)
-    const key = (await read($, repo)) ?? (await repoKey($))
-    const words = e.args.trim().split(/\s+/).filter(Boolean)
-    const verb = (words[0] ?? '').toLowerCase()
-    const rest = words.slice(1).join(' ')
-    const later = 'Other windows of this repo follow within 30 seconds.'
-    // Anything that is not a clear command goes to Claude, which asks with a few choices.
-    const ask = async (task: 'repick' | 'intent') =>
-      (await askClaude($, key, e.args.trim(), task)) ? { text: 'Claude will ask you what you want.' } : { text: USAGE }
-
-    if (verb === 'help') {
-      return { text: USAGE }
-    }
-    if (verb === '') {
-      return await ask('intent')
-    }
-    if (verb === 'off' || verb === 'on') {
-      await update($, isHidden, () => verb === 'off')
-      await refreshStatus($)
-      return { text: verb === 'off' ? 'Label, strip and border hidden. /mod_tint on brings them back.' : 'Label, strip and border shown.' }
-    }
-    if (verb === 'titles' || verb === 'title') {
-      const wanted = rest.toLowerCase()
-      if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
-      await update($, isTitling, () => wanted === 'on')
-      return {
-        text: wanted === 'on'
-          ? `Claude checks this window's title every ${TITLE_EVERY} prompts and renames it when the main topic changes.`
-          : 'Claude no longer renames this window. /mod_tint titles on brings it back.',
-      }
-    }
-    if (verb === 'frame') {
-      const wanted = rest.toLowerCase()
-      if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
-      await saveChoice($, key, { frame: wanted === 'on' })
-      await loadChoice($, key)
-      return { text: `Border around your messages is ${wanted} for ${key}. ${later}` }
-    }
-    if (verb === 'reset') {
-      await saveChoice($, key, null)
-      await update($, name, () => null)
-      await update($, isHidden, () => false)
-      await loadChoice($, key)
-      const picked = await pickIdentity($, key)
-      return {
-        text: picked
-          ? `Choices for ${key} forgotten. Claude picked ${picked.icon} ${picked.color}. ${later}`
-          : `Choices for ${key} forgotten. Claude could not pick right now, so the automatic color shows; it tries again next session.`,
-      }
-    }
-    if (verb === 'update') {
-      return { text: await updateTint($) }
-    }
-    if (verb === 'repick') {
-      return await ask('repick')
-    }
-    if (verb === 'undo') {
-      const back = await undoLook($, key)
-      return { text: back ? `${key} is back to ${lookText(back)}. ${later}` : `${key} has no earlier look to go back to.` }
-    }
-    if (verb === 'desktop') {
-      const home = (await $.env.get('HOME')) ?? ''
-      const prefs = `${home}/${APP_SUPPORT}/Preferences`
-      const devSettings = `${home}/${APP_SUPPORT}/developer_settings.json`
-      if ((await $.fs.read(prefs).catch(() => null)) === null) {
-        return { text: 'The Claude desktop app\'s settings were not found on this computer (it works on macOS). `/mod_tint css` copies the script to paste by hand.' }
-      }
-      const how = rest.toLowerCase()
-      if (how !== 'go' && how !== 'line') {
-        const devMode = await readJson<{ allowDevTools?: boolean }>($, devSettings)
-        const saved = await savedSnippet($)
-        const current = await tintScript($)
-        const plain = (text: string) => text.replace(REPOS_PART, '')
-        if (saved !== null && current !== null && devMode?.allowDevTools === true && plain(saved) === plain(current)) return { text: DESKTOP_RUN }
-        return { text: desktopPlan(devMode?.allowDevTools === true, saved !== null) }
-      }
-      return { text: (await installDesktop($, how)).text }
-    }
-    if (verb === 'css') {
-      const isScan = rest.toLowerCase() === 'scan'
-      const file = `${$.plugin.root}/desktop/${isScan ? 'scan' : 'tint'}.js`
-      const text = isScan ? await $.fs.read(file).catch(() => null) : await tintScript($)
-      if (text === null) return { text: `window-tint: could not read ${file}.` }
-      const copied = await $.ui.copy({ text })
-      if (!copied.isCopied) return { text: `Could not copy here. The script is ${file}.` }
-      return {
-        text: isScan
-          ? 'Layout scan copied (look-only). In the desktop app: ⌥⌘I, Console, paste, Enter; it copies a report to paste where you need it.'
-          : DESKTOP_STEPS,
-      }
-    }
-    if (verb === 'name') {
-      await update($, name, () => rest || null)
-      await refreshStatus($)
-      return { text: rest ? `This window is now "${rest}".` : 'Window name cleared.' }
-    }
-    if (verb === 'icon') {
-      if (!rest) return await ask('repick')
-      const derived = await iconColor($, key, rest)
-      await saveLook($, key, derived ? { icon: rest, color: derived } : { icon: rest })
-      return { text: `Emoji for ${key} is now ${rest}${derived ? `, color ${derived}` : ''}. ${later}` }
-    }
-    if (verb === 'pattern' || isPattern(verb)) {
-      const asked = verb === 'pattern' ? rest.toLowerCase() : verb
-      const now = (await read($, pattern)) ?? autoPattern(key)
-      const picked = asked || PATTERNS[(PATTERNS.indexOf(now as Pattern) + 1) % PATTERNS.length]!
-      if (!isPattern(picked)) return await ask('intent')
-      await saveChoice($, key, { pattern: picked })
-      await loadChoice($, key)
-      return { text: `Pattern for ${key} is now ${picked}. ${later}` }
-    }
-    if (verb === 'color' || isColor(verb)) {
-      const asked = verb === 'color' ? rest.toLowerCase() : verb
-      const now = nearestName((await read($, color)) ?? autoColor(key))
-      const picked = asked || NAMES[(NAMES.indexOf(now) + 1) % NAMES.length]!
-      if (!isColor(picked)) return await ask('intent')
-      await saveLook($, key, { color: picked, manualColor: true })
-      return { text: `Color for ${key} is now ${picked}. ${later}` }
-    }
-
-    // Anything else (a lone emoji, a typo, "go back", "make it green") Claude works out.
-    return await ask('intent')
-  })
+  on('command.run', { command: 'mod_tint' }, async ($, e) =>
+    // A change that cannot be saved (an unreadable repos.json) says why instead of failing quietly.
+    await modTint($, e.args).catch(error => ({ text: `window-tint: ${errorText(error)}` })))
 
   // Claude applies what the person chose in askClaude's question.
-  on('tool.call', { tool: new RegExp(`^${SET_TOOL}$`) }, async ($, e) => {
-    const key = (await read($, repo)) ?? (await repoKey($))
-    const input = e as unknown as {
-      icon?: string; color?: string; name?: string; hidden?: boolean; titles?: boolean; frame?: boolean; pattern?: string; undo?: boolean
-    }
-    const icon = input.icon?.trim()
-    const asked = input.color?.trim().toLowerCase()
-    if (icon === '') return { deny: 'icon is empty: give one emoji.' }
-    if (asked !== undefined && !isColor(asked)) return { deny: `color must be #RRGGBB or one of ${NAMES.join(', ')}.` }
-    if (input.pattern !== undefined && !isPattern(input.pattern)) return { deny: `pattern must be one of ${PATTERNS.join(', ')}.` }
-    const done: string[] = []
-    if (input.undo) {
-      const back = await undoLook($, key)
-      done.push(back ? `${key} is back to ${lookText(back)}.` : `${key} has no earlier look; nothing to undo.`)
-    }
-    if (icon !== undefined || asked !== undefined) {
-      const derived = icon !== undefined && asked === undefined ? await iconColor($, key, icon) : null
-      const change: Look = asked !== undefined
-        ? { ...(icon !== undefined ? { icon } : {}), color: asked, manualColor: true }
-        : derived ? { icon, color: derived } : { icon }
-      await saveLook($, key, change)
-      done.push(`${key} is now ${lookText((await readChoices($))[key] ?? {})}.`)
-    }
-    if (input.name !== undefined) {
-      const wanted = input.name.trim()
-      await update($, name, () => wanted || null)
-      done.push(wanted ? `This window is named "${wanted}".` : 'Window name cleared.')
-    }
-    if (input.hidden !== undefined) {
-      await update($, isHidden, () => input.hidden === true)
-      done.push(input.hidden ? 'Tint hidden in this window.' : 'Tint shown in this window.')
-    }
-    if (input.titles !== undefined) {
-      await update($, isTitling, () => input.titles === true)
-      done.push(input.titles ? 'Claude keeps this window\'s title on its main topic.' : 'Claude no longer renames this window.')
-    }
-    if (input.frame !== undefined || input.pattern !== undefined) {
-      await saveChoice($, key, { ...(input.frame !== undefined ? { frame: input.frame } : {}), ...(input.pattern ? { pattern: input.pattern } : {}) })
-      await loadChoice($, key)
-      if (input.frame !== undefined) done.push(`Border around messages ${input.frame ? 'on' : 'off'} for ${key}.`)
-      if (input.pattern) done.push(`Pattern is now ${input.pattern}.`)
-    }
-    await refreshStatus($)
-    if (done.length === 0) return { result: 'Nothing changed: give at least one field.' }
-    // Only repo-wide changes reach the other windows; a name or hide is this window's alone.
-    const isShared = input.undo || icon !== undefined || asked !== undefined || input.frame !== undefined || input.pattern !== undefined
-    return { result: isShared ? `${done.join(' ')} Other windows of the repository follow within 30 seconds.` : done.join(' ') }
-  })
+  on('tool.call', { tool: new RegExp(`^${SET_TOOL}$`) }, async ($, e) =>
+    await setLook($, e as unknown as SetInput).catch(error => ({ deny: errorText(error) })))
 
   // Your own messages: the app draws its bubble, the mod adds a border in this
   // window's exact color (window 1) or its shade (2, 3...) around it. Claude's replies, notices and other sessions' messages stay as drawn.
@@ -1471,7 +1509,7 @@ export const register: Register = on => {
           <Text color={ink} backgroundColor={tone} bold wrap="truncate">
             {label}  <Text color={shade(tone, isLight(tone) ? -0.4 : 0.45)}>{GLYPHS[kind].repeat(room)}</Text>
           </Text>
-          <Button key="next" label="Next color" plain onPress={() => nextColor($, key)} />
+          <Button key="next" label="Next color" plain onPress={() => nextColor($, key).catch(error => $.ui.toast(`window-tint: ${errorText(error)}`))} />
         </Box>
         {fresh !== null && (await read($, showAutoHow)) && <Text key="update-how-steps">  👉 {AUTO_UPDATE_STEPS}</Text>}
         {fresh !== null && (

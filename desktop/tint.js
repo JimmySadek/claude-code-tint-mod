@@ -5,7 +5,8 @@
 // snippet (Sources → Snippets) and after each app start run it there: right-click it, Run.
 // Running it again is safe: it repaints from scratch, so the colors stay on. Reloading the app removes it.
 //
-// What it does (display only; it sends nothing, stores nothing and changes no file):
+// What it does (display only; it sends nothing and changes no file; it keeps only its open
+// windows' numbers in the app's local storage, see NUMBERS):
 //   - the window you are typing in: a ring just outside its edge with a soft glow, a tint of
 //     its color on the conversation, and a colored text input;
 //   - other open windows: a lighter tint and a thin ring in their own color;
@@ -40,7 +41,8 @@
   // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}': every repo's
   // chosen look, so a color chosen after this script was saved shows on the next repaint, and
   // the window's own repo and number, so a window is known even with the sidebar hidden.
-  // (tint 1.7.0 labels held the repos map alone.)
+  // (tint 1.7.0 labels held the repos map alone.) Claude desktop 2.42304 draws no mod picture in
+  // the footer, so there the labels are missing and REPOS and NUMBERS stand in.
   const LIVE = 'tint-colors '
   const LIVE_SEL = `[alt^="${LIVE}"], [aria-label^="${LIVE}"]`
   const labelOf = el => {
@@ -60,7 +62,8 @@
   }
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
-  // A title's mark: "🧪 BAM · Topic", or the form before tint 1.9.0 with the window's number, "🧪3️⃣ Topic".
+  // A title's mark: "🧪 BAM · Topic", or the form before tint 1.9.0 with a number, "🧪3️⃣ Topic"
+  // (that number was frozen when the window started, so it is never read as the window's).
   const TITLE = new RegExp(`^(${EMOJI})(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))?\\s`, 'u')
   const SHADES = [0, -0.42, 0.5, -0.62, 0.68]   // accent per window number, as window-tint's footer
   const DEPTH = [1, 1.8, 0.55, 2.4, 0.4]        // background depth per window number
@@ -177,12 +180,40 @@
   }
   let known = REPOS, repoOfSid = new Map()
 
+  // NUMBERS: windows of one repo take numbers (1, 2, 3...), so each gets its own shade. Without
+  // the mod's labels the windows agree among themselves, the way the mod does: every app window
+  // shares this local storage, where each keeps its own windows' numbers. A window keeps its
+  // number while open and takes the lowest free one when it opens. A number not refreshed for
+  // NUMBER_MS is free again (its window closed, or its app window no longer runs this script).
+  const NUMBERS = 'window-tint:numbers'
+  const NUMBER_MS = 30_000
+  const numbersFor = groups => {   // session id -> its repo (or color) => session id -> number
+    const now = Date.now()
+    let saved = {}
+    try { saved = JSON.parse(localStorage.getItem(NUMBERS)) ?? {} } catch { saved = {} }
+    const all = Object.fromEntries(Object.entries(saved).filter(([, each]) => now - each.seen < NUMBER_MS))
+    const out = new Map()
+    for (const [sid, group] of groups) {
+      const taken = new Set(Object.entries(all).filter(([other, each]) => other !== sid && each.group === group).map(([, each]) => each.n))
+      let n = all[sid]?.group === group ? all[sid].n : 1
+      while (taken.has(n)) n++
+      all[sid] = { group, n, seen: now }
+      out.set(sid, n)
+    }
+    try { localStorage.setItem(NUMBERS, JSON.stringify(all)) } catch {}
+    return out
+  }
+  // Painting happens only on changes, so a clock keeps this page's numbers fresh, and repaints
+  // when one moved (two app windows took the same number at once: the one that sees it moves).
+  let shown = new Map(), numbered = new Map()
+  const NUMBER_TICK = 10_000
+
   // Windows: each visible .epitaxy-chat-panel and the session it shows.
   const repoBySid = new Map()   // session id -> { repo, at }: the repo name found in its window, or null
   const MISS_MS = 10_000
   let retry = null
   const findWindows = () => {
-    const windows = new Map()
+    const found = []
     for (const panel of document.querySelectorAll('.epitaxy-chat-panel')) {
       if (!visible(panel) || panel.getBoundingClientRect().width < 100) continue
       const sid = panel.querySelector('[data-session-id]')?.getAttribute('data-session-id')
@@ -205,9 +236,18 @@
         repo = repoBySid.get(sid).repo ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
       }
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
-      if (color) windows.set(panel, { color, n: Number(own?.[1] ?? m?.[2] ?? m?.[3] ?? 1) || 1, sid })
+      if (color) found.push({ panel, color, sid, group: repo ?? color, own: Number(own?.[1]) || null })
     }
-    return windows
+    // The mod's number where its label is drawn, else the windows' own agreement.
+    shown = new Map(found.filter(each => !each.own).map(each => [each.sid, each.group]))
+    numbered = numbersFor(shown)
+    return new Map(found.map(({ panel, color, sid, own }) => [panel, { color, n: own ?? numbered.get(sid) ?? 1, sid }]))
+  }
+  const numberTick = () => {
+    if (shown.size === 0) return
+    const before = numbered
+    numbered = numbersFor(shown)
+    if ([...numbered].some(([sid, n]) => before.get(sid) !== n)) soon()
   }
   // The slot: the first box around a window that is larger than it (the app's tile frame).
   // The app leaves about 9px around a window on the left and top but only 1px on the right,
@@ -455,6 +495,7 @@
   document.addEventListener('focusin', soon)
   document.addEventListener('mousedown', soon)
   window.addEventListener('resize', soon)
+  const numberClock = setInterval(numberTick, NUMBER_TICK)
 
   // Set before the first paint, so even a failed one can be turned off by the next Run.
   window.__windowTint = {
@@ -466,6 +507,7 @@
       window.removeEventListener('resize', soon)
       clearTimeout(timer)
       clearTimeout(retry)
+      clearInterval(numberClock)
       style.remove()
       for (const el of [...touched.keys()]) clear(el)
       delete window.__windowTint

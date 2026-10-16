@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.9.1] - 2026-10-17
+
+### Fixed
+- **Windows of one repo get their own shades again in the desktop app.** Claude desktop 2.42304 (installed 2026-10-15) no longer draws the mod's 1-pixel label in the footer, so the desktop script could not read a window's number. Until 1.9.0 the title's number (`🔮3️⃣`) stood in, and 1.9.0 took it out, so every window got the first shade. The windows now agree on numbers among themselves, the way the mod does: each app window keeps its open windows' numbers in the app's local storage, a window keeps its number while open, and a new one takes the lowest free number. It works in split view and across separate app windows. Where the label is drawn, its number still wins. Tested in Claude desktop 2.42304. Needs the new desktop script once: the band offers **Update**.
+
 ## [1.9.0] - 2026-10-16
 
 ### Changed

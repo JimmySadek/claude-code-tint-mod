@@ -367,6 +367,34 @@ test('an unreadable repos.json is never written over; saves go to a temporary fi
   expect([...world.files.keys()].some(path => path.endsWith('.tmp'))).toBe(false)
 })
 
+test('an icon must be one emoji, and never a mark for side chats or helpers', async ($, on) => {
+  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } })
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  const before = world.files.get(`${DIR}/repos.json`)
+  for (const wrong of ['CL', '🧪🧪', 'new emoji please']) {
+    expect((await $.command.run({ command: 'mod_tint', args: `icon ${wrong}`, ...AT_PROMPT })).text).toContain('is not one emoji')
+    expect(((await $.tool.call({ tool: 'mcp__tint__set', icon: wrong } as never)) as { deny?: string }).deny).toContain('is not one emoji')
+  }
+  expect((await $.command.run({ command: 'mod_tint', args: 'icon 💬', ...AT_PROMPT })).text).toContain('marks a side chat')
+  expect(((await $.tool.call({ tool: 'mcp__tint__set', icon: '🔧' } as never)) as { deny?: string }).deny).toContain('marks a helper')
+  expect(world.files.get(`${DIR}/repos.json`)).toBe(before)
+  expect(await title($, 'Work')).toBe('🧪 Work')
+
+  // An icon saved by hand that is not one emoji never reaches a title: the color square shows.
+  world.files.set(`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: 'CL', color: '#7C3AED' } }))
+  await world.clock.advance(31_000)
+  expect(await title($, 'Work')).toBe('🟪 Work')
+})
+
+test('Claude never picks 💬 or 🔧 for a repository', async ($, on) => {
+  const world = setup(on, 'repo-tools', '{"emoji":"🔧","color":"#D97706"}')
+  await $.session.start({ cwd: '/work/repo-tools', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  expect(world.asked[0]).toContain('not 💬 or 🔧')
+  expect(saved(world)['repo-tools']).toBeUndefined()
+})
+
 const GREEN = '{"color":"#259F3E","share":0.99,"saturation":0.77,"brightness":0.63}'
 const DULL = '{"color":"#6C8B9C","share":0.99,"saturation":0.31,"brightness":0.61}'
 

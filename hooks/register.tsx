@@ -273,6 +273,10 @@ const isColor = (word: string) => word in PALETTE || /^#[0-9a-f]{6}$/i.test(word
 const isPattern = (word: string): word is Pattern => (PATTERNS as readonly string[]).includes(word)
 // A repository's emoji: one emoji, and not a mark that says what a session is.
 const isIcon = (text: string) => EMOJI.test(text) && !ROLE_MARKS.has(text)
+// Why an icon was refused, in words.
+const iconRefusal = (text: string) => ROLE_MARKS.has(text)
+  ? `${text} marks a ${text === '💬' ? 'side chat' : 'helper'} in titles, so it cannot be a repository's emoji. Pick another one.`
+  : `"${text}" is not one emoji, and titles start with the repository's emoji. Try /mod_tint icon 🧪, or /mod_tint repick for ideas.`
 
 function channels(hex: string): number[] {
   return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
@@ -1344,6 +1348,7 @@ async function setLook($: EngineInterface, input: SetInput): Promise<{ result: s
   const icon = input.icon?.trim()
   const asked = input.color?.trim().toLowerCase()
   if (icon === '') return { deny: 'icon is empty: give one emoji.' }
+  if (icon !== undefined && !isIcon(icon)) return { deny: iconRefusal(icon) }
   if (asked !== undefined && !isColor(asked)) return { deny: `color must be #RRGGBB or one of ${NAMES.join(', ')}.` }
   if (input.pattern !== undefined && !isPattern(input.pattern)) return { deny: `pattern must be one of ${PATTERNS.join(', ')}.` }
   const done: string[] = []
@@ -1482,6 +1487,7 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
   }
   if (verb === 'icon') {
     if (!rest) return await ask('repick')
+    if (!isIcon(rest)) return { text: iconRefusal(rest) }
     const derived = await iconColor($, key, rest)
     await saveLook($, key, derived ? { icon: rest, color: derived } : { icon: rest })
     return { text: `Emoji for ${key} is now ${rest}${derived ? `, color ${derived}` : ''}. ${later}` }

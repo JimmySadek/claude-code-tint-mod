@@ -128,7 +128,8 @@ type Window = { repo: string; n: number; seen: number; since?: number; ended?: b
 // folders: other names the app shows for this repo (a clone or worktree folder), for /mod_tint css.
 // previous: the look before the last emoji or color change, so "go back" is one step.
 type Look = { icon?: string; color?: string; manualColor?: boolean }
-type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look }
+// pastIcons: every emoji the repo had before (newest last), so titles still showing one get the new one.
+type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look; pastIcons?: string[] }
 
 // The tool Claude calls to apply what the person chose (see askClaude).
 const SET_TOOL = 'mcp__tint__set'
@@ -592,9 +593,10 @@ const errorText = (error: unknown) => (error instanceof Error ? error.message : 
 async function pruneWindows($: EngineInterface, now: number): Promise<void> {
   const dir = `${await folder($)}/windows`
   const entries = await $.fs.list(dir).catch(() => [])
+  const own = `${await $.session.id()}.json`   // a resumed session's own record is being written now
   const old: string[] = []
   for (const entry of entries) {
-    if (!entry.name.endsWith('.json')) continue
+    if (!entry.name.endsWith('.json') || entry.name === own) continue
     const other = await readJson<Window>($, `${dir}/${entry.name}`)
     if (other && now - other.seen > PRUNE_MS) old.push(`${dir}/${entry.name}`)
   }
@@ -641,8 +643,9 @@ async function claimNumber($: EngineInterface, key: string, id: string, now: num
   const taken = new Set<number>()
   for (const [other, record] of all) if (other !== id && isLive(record, now)) taken.add(record.n)
   let n = mine && !taken.has(mine.n) ? mine.n : 1
-  // A window that keeps its number (a resumed session) keeps its claim time.
-  let since = mine && n === mine.n ? (mine.since ?? now) : now
+  // A window still running (this mod reloaded) keeps its claim time. A resumed session's old
+  // record says nothing about now, so it claims afresh and never outranks an open window.
+  let since = mine && n === mine.n && isLive(mine, now) ? (mine.since ?? now) : now
   for (let tries = 0; tries < CLAIM_TRIES; tries++) {
     while (taken.has(n)) [n, since] = [n + 1, now]
     await $.fs.write(`${dir}/${id}.json`, JSON.stringify({ repo: key, n, seen: now, since } satisfies Window))
@@ -682,9 +685,9 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const choice = all[key] ?? {}
   const tag = LIVE_TAG + JSON.stringify({ repos: desktopRepos(all), window: [key, (await read($, number)) ?? 1] })
   if ((await read($, liveColors)) !== tag) await update($, liveColors, () => tag)
-  // Marks a title may lose: a color square, and this repo's emoji before the last change.
-  const before = choice.previous?.icon
-  staleMarks = new Set([...SQUARE_MARKS, ...(before && !ROLE_MARKS.has(before) ? [before] : [])])
+  // Marks a title may lose: a color square, and any emoji this repo had before.
+  const before = [...(choice.pastIcons ?? []), ...(choice.previous?.icon ? [choice.previous.icon] : [])]
+  staleMarks = new Set([...SQUARE_MARKS, ...before.filter(each => !ROLE_MARKS.has(each))])
   const wanted = {
     color: choice.color ?? autoColor(key),
     // Only one emoji: anything else saved by hand would break the titles.
@@ -721,19 +724,24 @@ async function look($: EngineInterface): Promise<{ key: string; tone: string; ki
 // A title that already starts with an emoji keeps it: the session that starts another one
 // names it at birth (💬 a side chat, 🔧 a helper, a project's emoji for a work room), and
 // tint cannot know which session started which. Only a mark tint itself left is replaced:
-// a color square (shown until an emoji is picked) and the repo's emoji before the last change.
-const MARK = /^(\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*) +/u
+// a color square (shown until an emoji is picked) and the emoji the repo had before.
+// A mark: one emoji (with a skin tone, joined to more), or a flag.
+const MARK = /^(\p{Regional_Indicator}{2}|\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?)*) +/u
 // The form before 1.9.0: emoji and window keycap ("🧪1️⃣ ", "🟧1️⃣ "), or from 10 on two plain
-// digits ("🧪12 "). Rewritten to the new form, number dropped.
-const OLD_PREFIX = /^\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*(?:[0-9]️?⃣|[1-9][0-9])\s+/u
+// digits ("🧪12 "). Rewritten to the new form, number dropped. Two digits count only after
+// tint's own emoji, so "🔥20 recap" stays a title of its own.
+const OLD_KEYCAP = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*[0-9]\uFE0F?\u20E3\s+/u
+const OLD_DIGITS = /^(\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)[1-9][0-9]\s+/u
 const SQUARE_MARKS = new Set([...Object.values(SQUARES), '⬛'])
 
 // Marks tint may replace in this repo's titles; set from repos.json by applyChoice.
 let staleMarks = new Set<string>(SQUARE_MARKS)
 
 // A title's own mark (null for none, and for the old keycap form) and the words after it.
-function splitTitle(title: string): { mark: string | null; rest: string; isOld: boolean } {
-  const old = title.match(OLD_PREFIX)
+// own: this repo's mark now.
+function splitTitle(title: string, own: string): { mark: string | null; rest: string; isOld: boolean } {
+  const digits = title.match(OLD_DIGITS)
+  const old = title.match(OLD_KEYCAP) ?? (digits && (digits[1] === own || staleMarks.has(digits[1]!)) ? digits : null)
   if (old) return { mark: null, rest: title.slice(old[0].length).trim(), isOld: true }
   const lead = title.match(MARK)
   if (lead) return { mark: lead[1]!, rest: title.slice(lead[0].length).trim(), isOld: false }
@@ -749,7 +757,7 @@ async function titled($: EngineInterface, current: string | undefined): Promise<
   const key = await read($, repo)
   if (key === null || (await read($, isHidden))) return undefined
   const mark = await markOf($, key)
-  const { mark: lead, rest } = splitTitle(current ?? '')
+  const { mark: lead, rest } = splitTitle(current ?? '', mark)
   const words = (await read($, name)) ?? (rest || key)
   return `${keptMark(lead, mark) ?? mark} ${words}`
 }
@@ -773,18 +781,21 @@ async function titleNudge($: EngineInterface, current: string | undefined, isOwn
   if (key === null) return undefined
   const isHiddenNow = await read($, isHidden)
   const ownMark = await markOf($, key)
-  const { mark: lead, rest, isOld } = splitTitle(current ?? '')
+  const { mark: lead, rest, isOld } = splitTitle(current ?? '', ownMark)
   const kept = keptMark(lead, ownMark)
   const isDue = isOwn && count >= TITLE_FIRST && (count - TITLE_FIRST) % TITLE_EVERY === 0
   const isMissing = !isHiddenNow && !!current?.trim() && kept === null && current !== filledFor
   if (!isDue && !isMissing) return undefined
   if (isMissing) filledFor = current ?? null
-  const mark = isHiddenNow ? '' : `${kept ?? ownMark} `
+  // Hidden: no mark is added, and one the title has stays.
+  const mark = isHiddenNow ? (lead !== null ? `${lead} ` : '') : `${kept ?? ownMark} `
   const own = await read($, name)
   const now = current ? `"${current}"` : 'not set yet'
   const shape = 'A title is "Project · topic": the project this session is about in a word or two (a product, client or repository), " · ", then its main thread in 2 to 4 words, a noun phrase. No status words (approved, read-only, done, redo), no dates, no window number.'
   const markLine = isHiddenNow
-    ? 'This window shows no window-tint mark, so the title is "Project · topic" alone: do not add an emoji or a number.'
+    ? lead !== null
+      ? `This window shows no window-tint mark, so do not add one; keep the title's leading "${lead}" as it is and change only the words after it (now "${rest}").`
+      : 'This window shows no window-tint mark, so the title is "Project · topic" alone: do not add an emoji or a number.'
     : kept !== null
     ? `Keep its leading "${kept}" as it is (the session that started this one may have chosen it) and change only the words after it (now "${rest}").`
     : `Start it with "${mark}"${isOld ? ' and drop the old window number after the emoji' : lead !== null ? ` in place of "${lead} "` : ''}, so it never doubles up (the words now: "${rest}").`
@@ -897,7 +908,13 @@ const PICK_SYSTEM = [
 // /mod_tint repick, where Claude asks the person (askClaude), never this.
 // Resolves what was saved, or null when the call failed and the hash stays.
 async function pickIdentity($: EngineInterface, key: string): Promise<RepoChoice | null> {
-  const all = await readChoices($)
+  // An unreadable repos.json could not keep the pick: no model call, and one word about it.
+  const all = await choicesToChange($).catch((error: unknown) => {
+    if (!hasWarned) $.ui.toast(`window-tint: ${errorText(error)}`)
+    hasWarned = true
+    return null
+  })
+  if (all === null) return null
   const mine = all[key] ?? {}
   if (mine.icon && mine.color) return null
   const others = Object.entries(all)
@@ -937,13 +954,22 @@ async function iconColor($: EngineInterface, key: string, emoji: string): Promis
   return (await readChoices($))[key]?.manualColor === true ? null : await emojiColor($, emoji)
 }
 
+// The repo's past emoji once its emoji becomes `next` (unchanged when it stays the same).
+const PAST_ICONS = 12
+function pastIconsAfter(mine: RepoChoice, next: string | undefined): string[] | undefined {
+  if (next === undefined || !mine.icon || next === mine.icon) return mine.pastIcons
+  return [...(mine.pastIcons ?? []).filter(each => each !== next && each !== mine.icon), mine.icon].slice(-PAST_ICONS)
+}
+
 // A new emoji or color for the repo; the look before it is kept as `previous`.
 async function saveLook($: EngineInterface, key: string, change: Look): Promise<void> {
   const mine = (await readChoices($))[key] ?? {}
   const isNew = (change.icon !== undefined && change.icon !== mine.icon) ||
     (change.color !== undefined && change.color !== mine.color)
   const previous: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
-  await saveChoice($, key, isNew && (mine.icon || mine.color) ? { ...change, previous } : change)
+  const pastIcons = pastIconsAfter(mine, change.icon)
+  const kept = { ...change, ...(pastIcons ? { pastIcons } : {}) }
+  await saveChoice($, key, isNew && (mine.icon || mine.color) ? { ...kept, previous } : kept)
   await applyChoice($, key)
 }
 
@@ -954,7 +980,8 @@ async function undoLook($: EngineInterface, key: string): Promise<Look | null> {
   const back = mine.previous
   if (!back) return null
   const now: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
-  await saveChoice($, key, { icon: back.icon, color: back.color, manualColor: back.manualColor, previous: now })
+  const pastIcons = pastIconsAfter(mine, back.icon)
+  await saveChoice($, key, { icon: back.icon, color: back.color, manualColor: back.manualColor, previous: now, ...(pastIcons ? { pastIcons } : {}) })
   await applyChoice($, key)
   return back
 }
@@ -1049,6 +1076,9 @@ function desktopRepos(choices: Record<string, RepoChoice>): Record<string, [stri
   }
   return out
 }
+
+// Whether this copy said once that repos.json cannot be read.
+let hasWarned = false
 
 // Once per session: a repo without an identity gets one on the first prompt when the
 // session draws somewhere (desktop app, terminal, editor). pickIdentity returns at once
@@ -1429,7 +1459,11 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     return { text: `Border around your messages is ${wanted} for ${key}. ${later}` }
   }
   if (verb === 'reset') {
+    // Everything goes but the list of past emoji, so titles still showing one get the new one.
+    const mine = (await choicesToChange($))[key] ?? {}
+    const past = [...(mine.pastIcons ?? []), ...(mine.icon ? [mine.icon] : [])].slice(-PAST_ICONS)
     await saveChoice($, key, null)
+    if (past.length > 0) await saveChoice($, key, { pastIcons: past })
     await update($, name, () => null)
     await update($, isHidden, () => false)
     await applyChoice($, key)

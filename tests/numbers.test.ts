@@ -65,6 +65,30 @@ test('a window from before 1.9.0 (no claim time) counts as the earlier claim', a
   expect(mine(files).n).toBe(2)
 })
 
+test('a newcomer with a lower session id but a later claim moves on', async ($, on) => {
+  const files = new Map<string, string>()
+  // "zzz" claimed 1 a moment before this window ("me" < "zzz" would win only a tie).
+  world(on, files, () => files.set(`${DIR}/windows/zzz.json`, record(1, NOW - 1)))
+  await $.session.start(START)
+  expect(mine(files).n).toBe(2)
+})
+
+test('a resumed session claims afresh: its old claim time never takes an open window\'s number', async ($, on) => {
+  const files = new Map<string, string>([
+    // This session's own record from two days ago, claimed long before anyone else.
+    [`${DIR}/windows/me.json`, JSON.stringify({ repo: 'claude-mods', n: 1, seen: NOW - 48 * 3_600_000, since: 1 })],
+  ])
+  const clock = world(on, files)
+  await $.session.start(START)
+  expect(mine(files)).toMatchObject({ n: 1, since: NOW })
+  // An open window that held 1 (its record was briefly stale, a Mac waking) keeps it on the re-check.
+  files.set(`${DIR}/windows/zzz.json`, record(1, NOW - 3_600_000))
+  await clock.advance(31_000)
+  expect(mine(files).n).toBe(2)
+  // The two-day-old record was its own: not deleted as an orphan while it is being written.
+  expect(files.has(`${DIR}/windows/me.json`)).toBe(true)
+})
+
 test('the heartbeat finds a number taken by an earlier claim and moves on; the label follows', async ($, on) => {
   const files = new Map<string, string>()
   const clock = world(on, files)

@@ -123,6 +123,11 @@ test('with the tint hidden, the note never adds a mark and nothing is filled', a
   expect(due).toContain('do not add an emoji or a number')
   expect(due).toContain('"<Project> · <main topic>"')
   expect(due).not.toMatch(/🟦/u)
+  // A title that has a mark of its own keeps it, hidden or not.
+  for (let i = 0; i < 4; i++) await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '💬 BAM · Why 0.4?' } as never)
+  const marked = ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '💬 BAM · Why 0.4?' } as never)).additionalContext ?? []).join('\n')
+  expect(marked).toContain('keep the title\'s leading "💬" as it is')
+  expect(marked).toContain('"💬 <Project> · <main topic>"')
 })
 
 test('terminal only: no rename tool, so no title checks', async ($, on) => {

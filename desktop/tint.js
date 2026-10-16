@@ -178,7 +178,8 @@
   let known = REPOS, repoOfSid = new Map()
 
   // Windows: each visible .epitaxy-chat-panel and the session it shows.
-  const repoBySid = new Map()
+  const repoBySid = new Map()   // session id -> { repo, at }: the repo name found in its window, or null
+  const MISS_MS = 10_000
   const findWindows = () => {
     const windows = new Map()
     for (const panel of document.querySelectorAll('.epitaxy-chat-panel')) {
@@ -189,11 +190,15 @@
       const own = ownOf(panel)   // the window's own label: no sidebar needed, and no scan
       let repo = own && known[own[0]] ? own[0] : null
       if (!repo) {
-        // A saved repo name shown in the window (its header chip), looked for once per session:
-        // a miss is kept too, so a window of an unknown repo is not scanned on every repaint.
-        if (!repoBySid.has(sid)) repoBySid.set(sid, leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null)
+        // A saved repo name shown in the window (its header chip), looked for once per session.
+        // A miss is kept for MISS_MS, so a window of an unknown repo is not scanned on every
+        // repaint, and a chip that shows up late is still found.
+        const found = repoBySid.get(sid)
+        if (!found || (found.repo === null && Date.now() - found.at > MISS_MS)) {
+          repoBySid.set(sid, { repo: leaves(panel).filter(el => !skip(el)).map(el => bare(el.textContent || '')).find(t => REPOS[t]) ?? null, at: Date.now() })
+        }
         const fromSidebar = repoOfSid.get(sid)
-        repo = repoBySid.get(sid) ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
+        repo = repoBySid.get(sid).repo ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
       }
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
       if (color) windows.set(panel, { color, n: Number(own?.[1] ?? m?.[2] ?? m?.[3] ?? 1) || 1, sid })

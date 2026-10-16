@@ -197,6 +197,7 @@ test('overrides: /mod_tint color #hex and icon; each keeps the look before it, a
   expect(saved(world).matchday).toEqual({
     icon: '🏟️', color: '#111827', manualColor: true,
     previous: { icon: '🟩', color: '#111827', manualColor: true },
+    pastIcons: ['🟩'],
   })
   expect(await title($, 'Work')).toBe('🏟️ Work')
 
@@ -270,7 +271,7 @@ test('the set tool applies what the person chose: emoji with its measured color,
   const set = (input: object) => $.tool.call({ tool: 'mcp__tint__set', ...input } as never)
   const picked = await set({ icon: '🧪' })
   expect(String(picked.result)).toContain('Claude-Labs is now 🧪 · #259F3E (green)')
-  expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' } })
+  expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' }, pastIcons: ['🧭'] })
   expect(await title($, 'Work')).toBe('🧪 Work')
 
   // A name is this window's alone, so the answer does not talk about other windows.
@@ -303,12 +304,17 @@ test('title migration: the old keycap form loses its number; a mark of its own i
   expect(await title($, '🟧1️⃣ Mod ideas')).toBe('🧪 Mod ideas')
   expect(await title($, '🧪1️⃣ Mod ideas')).toBe('🧪 Mod ideas')
   expect(await title($, '🦊3️⃣ Mod ideas')).toBe('🧪 Mod ideas')
-  expect(await title($, '👩‍🔬12 Mod ideas')).toBe('🧪 Mod ideas')
+  expect(await title($, '🧪12 Mod ideas')).toBe('🧪 Mod ideas')
   // The new form stays, and a title with no mark gets this repo's.
   expect(await title($, '🧪 Lab · Mod ideas')).toBe('🧪 Lab · Mod ideas')
   expect(await title($, 'Mod ideas')).toBe('🧪 Mod ideas')
-  // A title that merely starts with an emoji and a year is no old prefix.
+  // A title that merely starts with an emoji and a number is no old prefix: two plain digits
+  // count only after tint's own emoji (a keycap after any emoji).
   expect(await title($, '🔥2024 recap')).toBe('🧪 🔥2024 recap')
+  expect(await title($, '🔥20 recap')).toBe('🧪 🔥20 recap')
+  // A flag or a skin tone is a mark too.
+  expect(await title($, '🇩🇪 Berlin · Launch')).toBe('🇩🇪 Berlin · Launch')
+  expect(await title($, '👍🏽 Lab · Thanks')).toBe('👍🏽 Lab · Thanks')
   // A mark another session gave it at birth stays: side chat, helper, a project's emoji.
   expect(await title($, '💬 Lab · Why 0.4?')).toBe('💬 Lab · Why 0.4?')
   expect(await title($, '🔧 one-repo · Wrap fix')).toBe('🔧 one-repo · Wrap fix')
@@ -320,6 +326,16 @@ test('title migration: the old keycap form loses its number; a mark of its own i
   await $.command.run({ command: 'mod_tint', args: 'icon 🔬' } as never)
   expect(await title($, '🧪 Lab · Mod ideas')).toBe('🔬 Lab · Mod ideas')
   expect(await title($, '📚 BAM · Templates')).toBe('📚 BAM · Templates')
+  // Still after a color change and a second new emoji: every emoji the repo had is tint's own.
+  await $.command.run({ command: 'mod_tint', args: 'color teal' } as never)
+  await $.command.run({ command: 'mod_tint', args: 'icon 🧫' } as never)
+  expect(await title($, '🧪 Lab · Mod ideas')).toBe('🧫 Lab · Mod ideas')
+  expect(await title($, '🔬 Lab · Mod ideas')).toBe('🧫 Lab · Mod ideas')
+  // And after a reset, whatever emoji comes next.
+  await $.command.run({ command: 'mod_tint', args: 'reset' } as never)
+  expect(saved(world)['lab-notes'].pastIcons).toEqual(['🧪', '🔬', '🧫'])
+  expect(await title($, '🧫 Lab · Mod ideas')).toMatch(/^🟦|^🟩|^🟧|^🟥|^🟨|^🟪|^🟫|^🩷/u)
+  await $.command.run({ command: 'mod_tint', args: 'icon 🔬' } as never)
 
   // A window name keeps the title's own mark.
   await $.command.run({ command: 'mod_tint', args: 'name Backend' } as never)
@@ -349,8 +365,8 @@ test('an unreadable repos.json is never written over; saves go to a temporary fi
   world.files.set(`${DIR}/repos.json`, broken)
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
-  // The background pick found nothing to keep, but saved nothing over the other repos either.
-  expect(world.asked.length).toBe(1)
+  // The background pick does not even ask Claude: it could not keep the answer.
+  expect(world.asked.length).toBe(0)
   expect(world.files.get(`${DIR}/repos.json`)).toBe(broken)
 
   const typed = await $.command.run({ command: 'mod_tint', args: 'icon 🔬', ...AT_PROMPT })

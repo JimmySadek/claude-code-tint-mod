@@ -21,9 +21,9 @@ Why two parts: a mod can draw inside the conversation, but it is sealed off from
 A title is the repository's emoji, a space, then **Project · topic** (`🧪 Shop · Login bug`): the project in a word or two, then the main thread in 2 to 4 words, with no status words, dates or window number.
 
 - **A mark of its own is kept.** The session that starts another one names it at birth: 💬 for a side chat, 🔧 for a helper, a project's emoji for a work room. Tint cannot tell which session started which, so it keeps any title that already starts with an emoji, and only fills titles that have none. 💬 and 🔧 are never a repository's emoji.
-- **Tint's own marks are replaced:** a color square (shown until an emoji is picked) and the repository's emoji before the last change.
-- **The form before 1.9.0** (`🧪1️⃣ Topic`, `🧪12 Topic`) is rewritten without its number.
-- **In the terminal** the mod sets the title itself. **The desktop app** ignores that, so a short hidden note asks Claude to rename through the app's own tool: at your 2nd prompt, then every 5th, and once on any prompt (a parent session's message included) when the title has no mark yet. Claude renames only when the title lacks the shape or the main topic changed. `/mod_tint titles off` stops it; with the tint hidden no mark is added.
+- **Tint's own marks are replaced:** a color square (shown until an emoji is picked) and any emoji the repository had before (`pastIcons` in `repos.json`, kept through `/mod_tint reset`). A flag or a skin tone counts as a mark.
+- **The form before 1.9.0** (`🧪1️⃣ Topic`, `🧪12 Topic`) is rewritten without its number. Two plain digits count only after tint's own emoji, so `🔥20 recap` stays as it is.
+- **In the terminal** the mod sets the title itself. **The desktop app** ignores that, so a short hidden note asks Claude to rename through the app's own tool: at your 2nd prompt, then every 5th, and once on any prompt (a parent session's message included) when the title has no mark yet. Claude renames only when the title lacks the shape or the main topic changed. `/mod_tint titles off` stops it; with the tint hidden no mark is added, and one the title has stays.
 
 ## The desktop tint
 

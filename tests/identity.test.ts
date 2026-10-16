@@ -108,7 +108,7 @@ test('first window of a repo: Claude picks an emoji and exact color once, and it
   expect(saved(world)['repo-fit']).toEqual({ icon: '📐', color: '#2563EB' })
   // Meaning only: the emoji in the title, no status line under the prompt.
   expect(world.footer()).toBeUndefined()
-  expect(await title($, 'Fit the layout')).toBe('📐1️⃣ Fit the layout')
+  expect(await title($, 'Fit the layout')).toBe('📐 Fit the layout')
 
   // The exact color draws the border around your own message (window 1), once turned on.
   await $.command.run({ command: 'mod_tint', args: 'frame on', ...AT_PROMPT })
@@ -130,7 +130,7 @@ test('a manual color is kept; Claude only adds the missing emoji', async ($, on)
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
   expect(saved(world)['lab-notes']).toEqual({ color: 'orange', icon: '🧪' })
-  expect(await title($, 'Work')).toBe('🧪1️⃣ Work')
+  expect(await title($, 'Work')).toBe('🧪 Work')
 })
 
 test('when the pick fails, the hashed color shows and nothing is saved', async ($, on) => {
@@ -139,8 +139,8 @@ test('when the pick fails, the hashed color shows and nothing is saved', async (
   await world.clock.settle()
   expect(saved(world)).toEqual({})
   // Never blank: the hashed color's square and the number.
-  expect(await title($, 'Work')).toMatch(/^\S+1️⃣ Work$/u)
-  expect(await title($, 'Brand work')).toMatch(/^\S+1️⃣ Brand work$/u)
+  expect(await title($, 'Work')).toMatch(/^\S+ Work$/u)
+  expect(await title($, 'Brand work')).toMatch(/^\S+ Brand work$/u)
 })
 
 test('a scripted run (claude -p) never asks Claude for an identity', async ($, on) => {
@@ -197,13 +197,13 @@ test('overrides: /mod_tint color #hex and icon; each keeps the look before it, a
     icon: '🏟️', color: '#111827', manualColor: true,
     previous: { icon: '🟩', color: '#111827', manualColor: true },
   })
-  expect(await title($, 'Work')).toBe('🏟️1️⃣ Work')
+  expect(await title($, 'Work')).toBe('🏟️ Work')
 
   // Undo goes one step back; a second undo swaps again.
   const back = await $.command.run({ command: 'mod_tint', args: 'undo' } as never)
   expect(back.text).toContain('🟩 · #111827')
   expect(saved(world).matchday.icon).toBe('🟩')
-  expect(await title($, 'Work')).toBe('🟩1️⃣ Work')
+  expect(await title($, 'Work')).toBe('🟩 Work')
   await $.command.run({ command: 'mod_tint', args: 'undo' } as never)
   expect(saved(world).matchday.icon).toBe('🏟️')
   // No picker call and no prompt for Claude: these are clear commands.
@@ -250,7 +250,7 @@ test('unclear words, a lone emoji or nothing at all go to Claude, never to a gue
   expect(world.submitted[3]).toContain('They did not say what to change')
   // Nothing was applied: not the emoji, and not a window named "🧪".
   expect(saved(world)['lab-notes']).toEqual({ icon: '🧭', color: '#E82F32' })
-  expect(await title($, 'Work')).toBe('🧭1️⃣ Work')
+  expect(await title($, 'Work')).toBe('🧭 Work')
 })
 
 test('a scripted run that draws nowhere gets the help instead of a prompt for Claude', async ($, on) => {
@@ -270,15 +270,15 @@ test('the set tool applies what the person chose: emoji with its measured color,
   const picked = await set({ icon: '🧪' })
   expect(String(picked.result)).toContain('Claude-Labs is now 🧪 · #259F3E (green)')
   expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' } })
-  expect(await title($, 'Work')).toBe('🧪1️⃣ Work')
+  expect(await title($, 'Work')).toBe('🧪 Work')
 
   // A name is this window's alone, so the answer does not talk about other windows.
   const named = await set({ name: 'Mods' })
   expect(String(named.result)).toBe('This window is named "Mods".')
   expect(String(picked.result)).toContain('Other windows of the repository follow')
-  expect(await title($, 'Work')).toBe('🧪1️⃣ Mods')
+  expect(await title($, 'Work')).toBe('🧪 Mods')
   await set({ name: '' })
-  expect(await title($, 'Work')).toBe('🧪1️⃣ Work')
+  expect(await title($, 'Work')).toBe('🧪 Work')
 
   await set({ undo: true })
   expect(saved(world)['Claude-Labs'].icon).toBe('🧭')
@@ -293,38 +293,52 @@ test('the set tool applies what the person chose: emoji with its measured color,
   expect(saved(world)['Claude-Labs'].color).toBe('teal')
 })
 
-test('title migration: old square, older icon-and-divider and new emoji prefixes never double up', async ($, on) => {
+test('title migration: the old keycap form loses its number; a mark of its own is kept', async ($, on) => {
   const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } })
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
 
-  expect(await title($, '🟧1️⃣ Mod ideas')).toBe('🧪1️⃣ Mod ideas')
-  expect(await title($, '🟦🍉1️⃣ │ Mod ideas')).toBe('🧪1️⃣ Mod ideas')
-  expect(await title($, '🧪1️⃣ Mod ideas')).toBe('🧪1️⃣ Mod ideas')
-  expect(await title($, '🦊3️⃣ Mod ideas')).toBe('🧪1️⃣ Mod ideas')
-  expect(await title($, '👩‍🔬12 Mod ideas')).toBe('🧪1️⃣ Mod ideas')
-  expect(await title($, 'Mod ideas')).toBe('🧪1️⃣ Mod ideas')
-  // A title that merely starts with an emoji and a year keeps it.
-  expect(await title($, '🔥2024 recap')).toBe('🧪1️⃣ 🔥2024 recap')
+  // The form before 1.9.0, whatever emoji and number it had, becomes the new one.
+  expect(await title($, '🟧1️⃣ Mod ideas')).toBe('🧪 Mod ideas')
+  expect(await title($, '🧪1️⃣ Mod ideas')).toBe('🧪 Mod ideas')
+  expect(await title($, '🦊3️⃣ Mod ideas')).toBe('🧪 Mod ideas')
+  expect(await title($, '👩‍🔬12 Mod ideas')).toBe('🧪 Mod ideas')
+  // The new form stays, and a title with no mark gets this repo's.
+  expect(await title($, '🧪 Lab · Mod ideas')).toBe('🧪 Lab · Mod ideas')
+  expect(await title($, 'Mod ideas')).toBe('🧪 Mod ideas')
+  // A title that merely starts with an emoji and a year is no old prefix.
+  expect(await title($, '🔥2024 recap')).toBe('🧪 🔥2024 recap')
+  // A mark another session gave it at birth stays: side chat, helper, a project's emoji.
+  expect(await title($, '💬 Lab · Why 0.4?')).toBe('💬 Lab · Why 0.4?')
+  expect(await title($, '🔧 one-repo · Wrap fix')).toBe('🔧 one-repo · Wrap fix')
+  expect(await title($, '📚 BAM · Templates')).toBe('📚 BAM · Templates')
+  // A color square (before an emoji was picked) is tint's own placeholder: replaced.
+  expect(await title($, '🟥 Lab · Mod ideas')).toBe('🧪 Lab · Mod ideas')
 
-  // An icon that is not an emoji is still recognised as this window's own prefix.
-  await $.command.run({ command: 'mod_tint', args: 'icon CL' } as never)
-  expect(await title($, 'CL1️⃣ Mod ideas')).toBe('CL1️⃣ Mod ideas')
+  // A new emoji replaces the old one in titles; other marks stay.
+  await $.command.run({ command: 'mod_tint', args: 'icon 🔬' } as never)
+  expect(await title($, '🧪 Lab · Mod ideas')).toBe('🔬 Lab · Mod ideas')
+  expect(await title($, '📚 BAM · Templates')).toBe('📚 BAM · Templates')
+
+  // A window name keeps the title's own mark.
+  await $.command.run({ command: 'mod_tint', args: 'name Backend' } as never)
+  expect(await title($, '💬 Lab · Why 0.4?')).toBe('💬 Backend')
+  expect(await title($, 'Mod ideas')).toBe('🔬 Backend')
+
+  // Tint hidden: the title is left as it is.
+  await $.command.run({ command: 'mod_tint', args: 'off' } as never)
+  expect(await title($, '🟧1️⃣ Mod ideas')).toBeUndefined()
 })
 
-test('the rename note names the new emoji prefix and both old ones', async ($, on) => {
+test('the rename note asks for the new form and drops the old number', async ($, on) => {
   const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } })
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
-  let note = ''
-  for (let i = 0; i < 5 && !note; i++) {
-    const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Mod ideas' } as never)
-    note = (result.additionalContext ?? []).join('\n')
-  }
-  expect(note).toContain('Keep the window-tint prefix "🧪1️⃣ " in front')
-  expect(note).toContain('(now "Mod ideas")')
-  expect(note).toContain('"🟧1️⃣ "')
-  expect(note).toContain('"🟦🍉1️⃣ │ "')
+  const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Mod ideas' } as never)
+  const note = (result.additionalContext ?? []).join('\n')
+  expect(note).toContain('Start it with "🧪 " and drop the old window number')
+  expect(note).toContain('(the words now: "Mod ideas")')
+  expect(note).toContain('"🧪 <Project> · <main topic>"')
 })
 
 const GREEN = '{"color":"#259F3E","share":0.99,"saturation":0.77,"brightness":0.63}'

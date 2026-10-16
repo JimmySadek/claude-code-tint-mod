@@ -103,15 +103,15 @@ test('second window of a repo gets #2, same color, and /mod_tint works', async (
   // No status line under the prompt any more.
   expect(footer).toBeUndefined()
 
-  // The split header's title gets the color square and number, no icon or divider.
-  const named = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟦🍉1️⃣ │ Old work' } as never)
-  expect(named.sessionTitle).toBe('🟦2️⃣ Backend')
+  // The split header's title gets the color square, never the window's number.
+  const named = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
+  expect(named.sessionTitle).toBe('🟦 Backend')
   await $.command.run({ command: 'mod_tint', args: 'name', ...AT_PROMPT })
-  const plain = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟦🍉1️⃣ │ Old work' } as never)
-  expect(plain.sessionTitle).toBe('🟦2️⃣ Old work')
-  // A title that already carries the new prefix does not get it twice.
-  const again = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
-  expect(again.sessionTitle).toBe('🟦2️⃣ Old work')
+  const plain = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
+  expect(plain.sessionTitle).toBe('🟦 Old work')
+  // A title that already carries the mark does not get it twice.
+  const again = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟦 Old work' } as never)
+  expect(again.sessionTitle).toBe('🟦 Old work')
 
   // No border around your messages at first; /mod_tint frame on adds one.
   const mine = { text: 'hello', origin: { kind: 'composer' }, isExpanded: true } as never

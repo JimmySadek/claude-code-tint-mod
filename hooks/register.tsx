@@ -36,11 +36,11 @@ const BAR: Record<string, string> = {
   red: 'red', orange: 'orange', yellow: 'yellow', lime: 'green', green: 'green', teal: 'cyan',
   cyan: 'cyan', blue: 'blue', indigo: 'purple', purple: 'purple', pink: 'pink', brown: 'orange',
 }
-const KEYCAPS = ['0️⃣', '1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣']
-// The old title prefix used " │ " before the name; still recognised so it never doubles up.
-const OLD_TITLE_MARK = ' │ '
 // One emoji: a pictograph, optionally joined to more with zero-width joiners.
 const EMOJI = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*$/u
+// The marks a session that starts another gives it: a side chat and a helper. Never a
+// repository's emoji, so a title that starts with one always says what the session is.
+const ROLE_MARKS = new Set(['💬', '🔧'])
 // The small background call that picks a repo's identity.
 const PICK_MODEL = 'haiku'
 const PICK_TIMEOUT_MS = 30_000
@@ -85,7 +85,8 @@ const STRIP_H = 40
 const DOCK_W = 900
 // The desktop app ignores a mod's sessionTitle, so the mod asks Claude to rename
 // through the app's own tool: at your 2nd prompt (the app's first title exists
-// by then), then every 5th. Claude renames only when the main topic changed.
+// by then), then every 5th, and once when a title has no mark (see titleNudge).
+// Claude renames only when the title lacks its shape or the main topic changed.
 const TITLE_TOOL = 'mcp__ccd_session_mgmt__set_session_title'
 const TITLE_FIRST = 2
 const TITLE_EVERY = 5
@@ -267,6 +268,8 @@ const autoPattern = (key: string): Pattern => PATTERNS[hash(key, 977) % PATTERNS
 const fill = (choice: string) => PALETTE[choice] ?? choice
 const isColor = (word: string) => word in PALETTE || /^#[0-9a-f]{6}$/i.test(word)
 const isPattern = (word: string): word is Pattern => (PATTERNS as readonly string[]).includes(word)
+// A repository's emoji: one emoji, and not a mark that says what a session is.
+const isIcon = (text: string) => EMOJI.test(text) && !ROLE_MARKS.has(text)
 
 function channels(hex: string): number[] {
   return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
@@ -581,9 +584,13 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const choice = all[key] ?? {}
   const tag = LIVE_TAG + JSON.stringify({ repos: desktopRepos(all), window: [key, (await read($, number)) ?? 1] })
   if ((await read($, liveColors)) !== tag) await update($, liveColors, () => tag)
+  // Marks a title may lose: a color square, and this repo's emoji before the last change.
+  const before = choice.previous?.icon
+  staleMarks = new Set([...SQUARE_MARKS, ...(before && !ROLE_MARKS.has(before) ? [before] : [])])
   const wanted = {
     color: choice.color ?? autoColor(key),
-    icon: choice.icon ?? null,
+    // Only one emoji: anything else saved by hand would break the titles.
+    icon: choice.icon && isIcon(choice.icon) ? choice.icon : null,
     pattern: choice.pattern && isPattern(choice.pattern) ? choice.pattern : autoPattern(key),
   }
   if ((await read($, color)) !== wanted.color) await update($, color, () => wanted.color)
@@ -610,68 +617,91 @@ async function look($: EngineInterface): Promise<{ key: string; tone: string; ki
   return { key, tone, kind, label }
 }
 
-const digitOf = (n: number) => (n < 10 ? KEYCAPS[n] : `${n}`)
+// Titles: the repo's emoji, a space, then "Project · topic" ("🧪 Tint · Session names").
+// No window number: a title lasts, while a number is only the window's slot while it is
+// open (it stays in the desktop ring's shade, the terminal strip and the live label).
+// A title that already starts with an emoji keeps it: the session that starts another one
+// names it at birth (💬 a side chat, 🔧 a helper, a project's emoji for a work room), and
+// tint cannot know which session started which. Only a mark tint itself left is replaced:
+// a color square (shown until an emoji is picked) and the repo's emoji before the last change.
+const MARK = /^(\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*) +/u
+// The form before 1.9.0: emoji and window keycap ("🧪1️⃣ ", "🟧1️⃣ "), or from 10 on two plain
+// digits ("🧪12 "). Rewritten to the new form, number dropped.
+const OLD_PREFIX = /^\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*(?:[0-9]️?⃣|[1-9][0-9])\s+/u
+const SQUARE_MARKS = new Set([...Object.values(SQUARES), '⬛'])
 
-// A tint prefix: one emoji (a color square before, a meaning emoji now), then the
-// window's keycap ("🧪1️⃣ ", "🟧1️⃣ ") or, from 10 on, two plain digits ("🧪12 ").
-const PREFIX = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*(?:[0-9]\uFE0F?\u20E3|[1-9][0-9])\s+/u
-// A title without our prefix: drops "🧪1️⃣ ", "🟧1️⃣ ", the older "🟦🍉1️⃣ │ ",
-// and this window's own prefix even when /mod_tint icon set something that is not an emoji.
-function bareTitle(title: string, own?: string): string {
-  if (title.includes(OLD_TITLE_MARK)) return title.split(OLD_TITLE_MARK).pop()?.trim() ?? ''
-  if (own && title.startsWith(own)) return title.slice(own.length).trim()
-  return title.replace(PREFIX, '').trim()
+// Marks tint may replace in this repo's titles; set from repos.json by applyChoice.
+let staleMarks = new Set<string>(SQUARE_MARKS)
+
+// A title's own mark (null for none, and for the old keycap form) and the words after it.
+function splitTitle(title: string): { mark: string | null; rest: string; isOld: boolean } {
+  const old = title.match(OLD_PREFIX)
+  if (old) return { mark: null, rest: title.slice(old[0].length).trim(), isOld: true }
+  const lead = title.match(MARK)
+  if (lead) return { mark: lead[1]!, rest: title.slice(lead[0].length).trim(), isOld: false }
+  return { mark: null, rest: title.trim(), isOld: false }
 }
 
-// "🧪1️⃣ " for this window, or undefined while it has no number yet.
-async function prefixOf($: EngineInterface): Promise<string | undefined> {
-  const key = await read($, repo)
-  const n = await read($, number)
-  if (key === null || n === null) return undefined
-  return `${await markOf($, key)}${digitOf(n)} `
-}
+// The mark a title keeps, or null when it has none of its own and gets this repo's.
+const keptMark = (mark: string | null, own: string) => (mark !== null && (mark === own || !staleMarks.has(mark)) ? mark : null)
 
-// "🧪1️⃣ <title>": the split's header shows it, so it never scrolls away.
+// "🧪 <title>": the split's header shows it, so it never scrolls away. A title with a mark of
+// its own keeps it; with the tint hidden the title is left as it is.
 async function titled($: EngineInterface, current: string | undefined): Promise<string | undefined> {
   const key = await read($, repo)
-  const prefix = await prefixOf($)
-  if (key === null || prefix === undefined || (await read($, isHidden))) return undefined
-  const rest = (await read($, name)) ?? bareTitle(current ?? '', prefix)
-  return `${prefix}${rest || key}`
+  if (key === null || (await read($, isHidden))) return undefined
+  const mark = await markOf($, key)
+  const { mark: lead, rest } = splitTitle(current ?? '')
+  const words = (await read($, name)) ?? (rest || key)
+  return `${keptMark(lead, mark) ?? mark} ${words}`
 }
 
-// Every TITLE_EVERY of your prompts, a hidden note asks Claude whether the title
-// still names the main topic. Renaming stays Claude's call; a name you typed
-// yourself is protected by the app, which asks you before replacing it.
-// A rename keeps this window's "🟧1️⃣ " prefix and changes only the name after
-// it; with the tint hidden there is no prefix, and none is invented.
-async function titleNudge($: EngineInterface, current: string | undefined): Promise<string | undefined> {
-  const count = (await read($, prompts)) + 1
-  await update($, prompts, () => count)
-  if (count < TITLE_FIRST || (count - TITLE_FIRST) % TITLE_EVERY !== 0) return undefined
+// The title the last fill note was about, so a title Claude cannot rename is asked about once.
+let filledFor: string | null = null
+
+// A hidden note asks Claude to keep the title right, in two cases:
+// - every TITLE_EVERY of your own prompts, whether it still names the main topic;
+// - once, on any prompt, when the title has no mark yet (or the old keycap form). A work room
+//   is driven by its parent's messages, so it would never reach your own prompt count.
+// Renaming stays Claude's call; a name you typed yourself is protected by the app, which asks
+// you before replacing it. With the tint hidden no mark is invented.
+async function titleNudge($: EngineInterface, current: string | undefined, isOwn: boolean): Promise<string | undefined> {
+  const count = (await read($, prompts)) + (isOwn ? 1 : 0)
+  if (isOwn) await update($, prompts, () => count)
   if (!(await read($, isTitling))) return undefined
   // Only the desktop app has the rename tool.
   if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return undefined
-  const ownPrefix = await prefixOf($)
-  if (ownPrefix === undefined) return undefined
-  const prefix = (await read($, isHidden)) ? '' : ownPrefix
-  const bare = bareTitle(current ?? '', ownPrefix)
+  const key = await read($, repo)
+  if (key === null) return undefined
+  const isHiddenNow = await read($, isHidden)
+  const ownMark = await markOf($, key)
+  const { mark: lead, rest, isOld } = splitTitle(current ?? '')
+  const kept = keptMark(lead, ownMark)
+  const isDue = isOwn && count >= TITLE_FIRST && (count - TITLE_FIRST) % TITLE_EVERY === 0
+  const isMissing = !isHiddenNow && !!current?.trim() && kept === null && current !== filledFor
+  if (!isDue && !isMissing) return undefined
+  if (isMissing) filledFor = current ?? null
+  const mark = isHiddenNow ? '' : `${kept ?? ownMark} `
   const own = await read($, name)
   const now = current ? `"${current}"` : 'not set yet'
-  const shape = prefix
-    ? `Keep the window-tint prefix "${prefix}" in front and change only the name after it (now "${bare}"); drop any other or older prefix such as "🟧1️⃣ " or "🟦🍉1️⃣ │ ", so it never doubles up.`
-    : 'This window shows no window-tint prefix, so the title is the name alone: do not add an emoji or number.'
+  const shape = 'A title is "Project · topic": the project this session is about in a word or two (a product, client or repository), " · ", then its main thread in 2 to 4 words, a noun phrase. No status words (approved, read-only, done, redo), no dates, no window number.'
+  const markLine = isHiddenNow
+    ? 'This window shows no window-tint mark, so the title is "Project · topic" alone: do not add an emoji or a number.'
+    : kept !== null
+    ? `Keep its leading "${kept}" as it is (the session that started this one may have chosen it) and change only the words after it (now "${rest}").`
+    : `Start it with "${mark}"${isOld ? ' and drop the old window number after the emoji' : lead !== null ? ` in place of "${lead} "` : ''}, so it never doubles up (the words now: "${rest}").`
   const target = own
-    ? `This window is named "${own}" (/mod_tint name), so the title should be exactly "${prefix}${own}".`
-    : `The name is 2 to 5 words naming the session's main thread, not a side task: "${prefix}<main topic>".`
+    ? `This window is named "${own}" (/mod_tint name), so the title should be exactly "${mark}${own}".`
+    : `The title names the session's main thread, not a side task: "${mark}<Project> · <main topic>".`
   const when = own
-    ? `If the title is not exactly "${prefix}${own}",`
-    : prefix
-    ? `If the title does not start with exactly "${prefix}", or the main topic has clearly changed,`
-    : 'If the main topic has clearly changed,'
+    ? `If the title is not exactly "${mark}${own}",`
+    : isMissing
+    ? 'The title does not have that start yet, so'
+    : 'If the title is not in that shape yet, or the main topic has clearly changed,'
   return [
     `[window-tint title check, from the window-tint mod] This window's title is ${now}.`,
     shape,
+    markLine,
     target,
     `${when} call ${TITLE_TOOL} with session_id "self" and the new title (load it with ToolSearch first if it is deferred).`,
     'If the title still fits, do nothing. Do not mention this note.',
@@ -717,7 +747,7 @@ function parseIdentity(text: string): { icon: string; color: string } | null {
     const value = JSON.parse(json) as { emoji?: unknown; color?: unknown }
     const emoji = typeof value.emoji === 'string' ? value.emoji.trim() : ''
     const hex = typeof value.color === 'string' ? value.color.trim().toUpperCase() : ''
-    if (!EMOJI.test(emoji) || !/^#[0-9A-F]{6}$/.test(hex)) return null
+    if (!isIcon(emoji) || !/^#[0-9A-F]{6}$/.test(hex)) return null
     return { icon: emoji, color: hex }
   } catch {
     return null
@@ -778,7 +808,7 @@ async function pickIdentity($: EngineInterface, key: string): Promise<RepoChoice
   const prompt = [
     'Choose one emoji and one exact hex color for the repository described below.',
     '- First say in a few words what the repository is about.',
-    '- The emoji is a picture of that subject, so it reads at a glance (for example a ball for a sports app, a book for stories). One single emoji: no flags, no color squares or circles, no text.',
+    '- The emoji is a picture of that subject, so it reads at a glance (for example a ball for a sports app, a book for stories). One single emoji: no flags, no color squares or circles, no text, and not 💬 or 🔧 (they mark side chats and helpers in titles).',
     '- If the repository text names a brand color (a hex value, a logo color, theme tokens), use the main one exactly. Otherwise pick a color that fits the subject.',
     '- The color draws a border on light and on dark backgrounds, so avoid very pale or very dark colors. Use the whole color wheel; do not default to purple or blue.',
     others.length
@@ -916,7 +946,7 @@ function desktopRepos(choices: Record<string, RepoChoice>): Record<string, [stri
     if (!choice.color) continue
     const hex = fill(choice.color)
     if (!/^#[0-9a-f]{6}$/i.test(hex)) continue
-    const mark = choice.icon ?? SQUARES[nearestName(choice.color)] ?? ''
+    const mark = (choice.icon && isIcon(choice.icon) ? choice.icon : SQUARES[nearestName(choice.color)]) ?? ''
     for (const shown of [key, ...(choice.folders ?? [])]) out[shown] = [hex.toUpperCase(), mark]
   }
   return out
@@ -1213,11 +1243,11 @@ export const register: Register = on => {
     const sessionTitle = await titled($, e.session_title)
     if (sessionTitle) result = { ...result, sessionTitle }
     // Only your own prompts count; wakeups, notices and other sessions' messages do not.
-    if (e.source === undefined || e.source === 'user') {
-      await pickOnFirstPrompt($).catch(() => undefined)
-      const note = await titleNudge($, e.session_title).catch(() => undefined)
-      if (note) result = { ...result, additionalContext: [...(result.additionalContext ?? []), note] }
-    }
+    const isOwn = e.source === undefined || e.source === 'user'
+    if (isOwn) await pickOnFirstPrompt($).catch(() => undefined)
+    // Any prompt may fill a title that has no mark yet (see titleNudge).
+    const note = await titleNudge($, e.session_title, isOwn).catch(() => undefined)
+    if (note) result = { ...result, additionalContext: [...(result.additionalContext ?? []), note] }
     return result
   })
 

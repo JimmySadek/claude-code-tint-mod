@@ -33,16 +33,18 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
 
-  const send = async (source?: string) => {
-    const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'Fix login bug', source } as never)
+  const send = async (source?: string, title = '🟦 Lab · Login bug') => {
+    const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source } as never)
     return (result.additionalContext ?? []).join('\n')
   }
 
   expect(await send()).toBe('')
   const second = await send('user')
   expect(second).toContain('mcp__ccd_session_mgmt__set_session_title')
-  expect(second).toContain('"Fix login bug"')
-  expect(second).toMatch(/"\S+1️⃣ <main topic>"/u)
+  expect(second).toContain('"🟦 Lab · Login bug"')
+  expect(second).toContain('"🟦 <Project> · <main topic>"')
+  expect(second).toContain('no window number')
+  expect(second).not.toMatch(/1️⃣/u)
 
   // Prompts 3 to 6 stay quiet; a wakeup or another session's message does not count.
   for (let i = 3; i <= 6; i++) expect(await send()).toBe('')
@@ -52,40 +54,75 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   // A window name fixes the title to that name.
   await $.command.run({ command: 'mod_tint', args: 'name Backend', ...AT_PROMPT })
   for (let i = 8; i <= 11; i++) await send()
-  expect(await send()).toMatch(/exactly "\S+1️⃣ Backend"/u)
+  expect(await send()).toContain('exactly "🟦 Backend"')
 
   // /mod_tint titles off stops the checks; on brings them back.
   await $.command.run({ command: 'mod_tint', args: 'titles off', ...AT_PROMPT })
   for (let i = 13; i <= 17; i++) expect(await send()).toBe('')
+  expect(await send('system', 'Fix login bug')).toBe('')
   await $.command.run({ command: 'mod_tint', args: 'titles on', ...AT_PROMPT })
   for (let i = 18; i <= 21; i++) await send()
   expect(await send()).toContain('window-tint title check')
 })
 
-test('a rename keeps the tint prefix when there is one, and never invents one', async ($, on) => {
+test('a title with no mark is filled once, whoever sent the prompt (a work room)', async ($, on) => {
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
-  const check = async (title: string) => {
-    let note = ''
-    for (let i = 0; i < 5 && !note; i++) {
+  const send = async (title: string, source = 'sdk') =>
+    ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source } as never)).additionalContext ?? []).join('\n')
+
+  // The parent session's message is enough: a work room never reaches your own prompt count.
+  const fill = await send('Templates 0.4')
+  expect(fill).toContain('Start it with "🟦 "')
+  expect(fill).toContain('(the words now: "Templates 0.4")')
+  expect(fill).toContain('The title does not have that start yet')
+  // Asked once: a title Claude cannot rename (one you typed) is not asked about again.
+  expect(await send('Templates 0.4')).toBe('')
+  // The old keycap form: the number goes, the words stay.
+  const old = await send('🦊3️⃣ Templates 0.4')
+  expect(old).toContain('drop the old window number')
+  expect(old).toContain('(the words now: "Templates 0.4")')
+  // A color square tint left before the emoji was picked is replaced too.
+  expect(await send('🟥 BAM · Templates')).toContain('in place of "🟥 "')
+  // No title yet: nothing to fill.
+  expect(((await $.classic.UserPromptSubmit({ prompt: 'hi', source: 'sdk' } as never)).additionalContext ?? [])).toEqual([])
+})
+
+test('a title that starts with its own mark keeps it: side chats, helpers, work rooms', async ($, on) => {
+  setup(on, ['desktop'])
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  const note = async (title: string) => {
+    let text = ''
+    for (let i = 0; i < 5 && !text; i++) {
       const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title } as never)
-      note = (result.additionalContext ?? []).join('\n')
+      text = (result.additionalContext ?? []).join('\n')
     }
-    return note
+    return text
   }
+  for (const [title, mark] of [['💬 BAM · Why 0.4?', '💬'], ['🔧 one-repo · Wrap fix', '🔧'], ['📚 BAM · Templates', '📚']] as const) {
+    // No fill note on any source: the mark is the starting session's choice.
+    const quiet = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source: 'sdk' } as never)
+    expect(quiet.additionalContext ?? []).toEqual([])
+    // The scheduled check keeps it and changes only the words.
+    const kept = await note(title)
+    expect(kept).toContain(`Keep its leading "${mark}" as it is`)
+    expect(kept).toContain(`"${mark} <Project> · <main topic>"`)
+    expect(kept).not.toContain('Start it with')
+  }
+})
 
-  // Prefix present: kept, only the name after it changes; an old-style prefix is stripped.
-  const kept = await check('🟦🍉1️⃣ │ Mod ideas')
-  expect(kept).toMatch(/Keep the window-tint prefix "\S+1️⃣ " in front/u)
-  expect(kept).toContain('(now "Mod ideas")')
-  expect(kept).toMatch(/"\S+1️⃣ <main topic>"/u)
-
-  // Tint hidden: no prefix, and none added.
+test('with the tint hidden, the note never adds a mark and nothing is filled', async ($, on) => {
+  setup(on, ['desktop'])
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'mod_tint', args: 'off', ...AT_PROMPT })
-  const bare = await check('Mod ideas')
-  expect(bare).toContain('do not add an emoji or number')
-  expect(bare).toContain('"<main topic>"')
-  expect(bare).not.toMatch(/1️⃣/u)
+  const send = async (source?: string) =>
+    ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'Mod ideas', source } as never)).additionalContext ?? []).join('\n')
+  expect(await send('sdk')).toBe('')
+  expect(await send()).toBe('')
+  const due = await send()
+  expect(due).toContain('do not add an emoji or a number')
+  expect(due).toContain('"<Project> · <main topic>"')
+  expect(due).not.toMatch(/🟦/u)
 })
 
 test('terminal only: no rename tool, so no title checks', async ($, on) => {

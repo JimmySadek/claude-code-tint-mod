@@ -13,7 +13,17 @@ Why two parts: a mod can draw inside the conversation, but it is sealed off from
 
 - **Emoji:** the first window of a new repository asks Claude Haiku once for an emoji that fits the repository. It is saved in `~/.claude/window-tint/repos.json` and never asked again. `/mod_tint icon 🧪` changes it. `/mod_tint repick` hands the choice to Claude in the window: it looks at what the repository is for, offers 3 emoji with AskUserQuestion, and applies the one you pick through tint's own tool (`mcp__tint__set`). The look before each change is kept, so `/mod_tint undo` goes back.
 - **Color:** measured from the emoji as macOS draws it, by `helpers/emoji-color.swift` (compiled on first use into `~/.claude/window-tint/`). If the emoji is dull or grey, Claude's suggested color is kept. `/mod_tint color #hex` sets one by hand.
-- **Number:** windows of the same repository agree on numbers through small files in `~/.claude/window-tint/windows/`.
+- **Number:** windows of the same repository agree on numbers through small files in `~/.claude/window-tint/windows/`. A window writes its claim at once and checks again; when two claim the same number at the same moment, the earlier claim keeps it (then the lower session id), and the 30-second heartbeat checks once more. Records not seen for a day are deleted. The number shows in the terminal strip and the desktop ring's shade, never in the title: a title lasts, a number is only the window's slot while it is open.
+- **Saving:** `repos.json` is written whole (a temporary file, then renamed over it). A `repos.json` that is there but cannot be read is never written over: the change is refused and says so, since a save would keep one repository and lose the rest.
+
+## Titles
+
+A title is the repository's emoji, a space, then **Project · topic** (`🧪 Shop · Login bug`): the project in a word or two, then the main thread in 2 to 4 words, with no status words, dates or window number.
+
+- **A mark of its own is kept.** The session that starts another one names it at birth: 💬 for a side chat, 🔧 for a helper, a project's emoji for a work room. Tint cannot tell which session started which, so it keeps any title that already starts with an emoji, and only fills titles that have none. 💬 and 🔧 are never a repository's emoji.
+- **Tint's own marks are replaced:** a color square (shown until an emoji is picked) and the repository's emoji before the last change.
+- **The form before 1.9.0** (`🧪1️⃣ Topic`, `🧪12 Topic`) is rewritten without its number.
+- **In the terminal** the mod sets the title itself. **The desktop app** ignores that, so a short hidden note asks Claude to rename through the app's own tool: at your 2nd prompt, then every 5th, and once on any prompt (a parent session's message included) when the title has no mark yet. Claude renames only when the title lacks the shape or the main topic changed. `/mod_tint titles off` stops it; with the tint hidden no mark is added.
 
 ## The desktop tint
 
@@ -27,13 +37,13 @@ What it looks for in the app's page (measured on Claude desktop 2.26454, October
 | The message box | `[data-cds="ChatComposer"]`, its text input `.bg-surface-3` |
 | Loading dots / Claude's mark | `[data-cds="WorkingMark"]` / `svg[data-cds="Spark"]` |
 | Colors | the app's `--cds-surface-*` and `--cds-clay` variables |
-| A repository's name and emoji | the sidebar: a repo heading is `[data-row-key^="label:project-"]`, in the same `group/section` box as its threads; the emoji is the one its most recent thread's title starts with |
+| Which repository a thread is under | the sidebar: a repo heading is `[data-row-key^="label:project-"]`, in the same `group/section` box as its threads |
 
 Where a repository's color comes from:
 
 1. **Live colors:** the mod draws a 1-pixel picture in each desktop window's footer (an `Svg` in the `SessionMode` slot, beside the mode labels; above the prompt the app wraps it in an empty card) whose label is `tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}`: every repository's chosen look from `repos.json`, and the window's own repository and number. The script reads these labels on each repaint, so a color chosen later shows at once with no reinstall, and a window is known even when the sidebar is hidden.
 2. **Saved colors** filled in when the snippet was saved (from `repos.json`), when the repository is there.
-3. Otherwise **learned from the page**: the emoji its threads start with (`🗂️1️⃣ …`), drawn on a canvas and measured the same way the mod measures it. A grey emoji gets a steady color made from the emoji itself. Only repo headings count, never date headings like "Older".
+3. Otherwise **the emoji its thread's title starts with** (`🗂️ …`), drawn on a canvas and measured the same way the mod measures it. A grey emoji gets a steady color made from the emoji itself. A color square, 💬 or 🔧 gives no color. Colors are never learned from other threads in the sidebar: a title's emoji may be a role or another project's.
 
 So a new repository needs no new copy of the script.
 
@@ -49,17 +59,17 @@ The app keeps DevTools snippets in its settings file, `~/Library/Application Sup
 4. If Developer Mode is off, it turns it on in `developer_settings.json` (`allowDevTools: true`), the same file and value the app's Help → Troubleshooting → Enable Developer Mode… writes.
 5. It opens the app again and exits. Nothing keeps running.
 
-At the start of a desktop session the mod compares the saved snippet with its own script (repo colors left out, since the script learns them) and says once when an update is ready.
+At the start of a desktop session, and on each heartbeat, the mod compares the saved snippet with its own script (repo colors left out, since the live labels carry them) and says when an update is ready. It reads the app's settings file again only when its modification time changes, and asks `ps` for the app's start time once per session start and then every 10 minutes.
 
 How it draws:
 
 - **Tints** set the app's own color variables inside each window, so the app keeps drawing everything itself.
 - **The ring** is a layer on the slot around the window, a few pixels outside the window's edge. The script never changes a box's size (an older width limit to even the gaps could keep a window stuck narrow), so the right gap can be a little smaller. Each repaint removes rings left on boxes that are no longer a window's slot.
 - **Loading dots** are drawn in a fixed orange that ignores color settings, so a CSS filter turns that orange into the window's color.
-- **Titles** are shortened on screen only (`🧪3️⃣ Title` shows as `3️⃣ Title`); the real session titles never change.
-- **Redraws** happen when the page changes, when you click into another window, and when a window changes size.
+- **Titles** are left as they are, in the sidebar and in each window's top bar, so a title's emoji (💬, 🔧, a project's) stays in view.
+- **Redraws** happen when a window, session, sidebar row or live label comes, goes or changes, when anything outside the windows changes, when you click into another window, and when a window changes size. The conversation inside a window (Claude's streamed text, tool output, what you type) changes many times a second and never causes a redraw. Each redraw measures every window first, then paints.
 
-Running the script again removes everything it added and puts the shortened titles back. Reloading the app does the same.
+Running the script again removes everything it added and paints from scratch, even after a failed first paint. Reloading the app removes it.
 
 ## Privacy
 

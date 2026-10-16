@@ -2,6 +2,23 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.9.0] - 2026-10-16
+
+### Changed
+- **Titles are the repo's emoji, then "Project · topic", with no window number.** The number in a title was the lowest free slot when the window started, then frozen: on 2026-10-16 four different sessions were named `🔮1️⃣ …`. A title lasts, a number does not, so the number now lives only where it is live: the terminal strip, the desktop ring's shade and the live label. Claude's rename note asks for `🧪 Project · topic` (2 to 4 words, no status words, no dates). Titles in the old form (`🧪1️⃣ Topic`, `🧪12 Topic`) are rewritten without the number. The older `🟦🍉1️⃣ │ Topic` form is no longer recognised.
+- **A title that already has an emoji keeps it.** A session that starts another one can name it at birth: 💬 a side chat, 🔧 a helper, a project's emoji for a work room. Tint cannot tell which session started which, so it only fills titles that have no emoji. It still replaces its own marks: a color square from before an emoji was picked, and the repo's emoji before the last change.
+- **Work rooms get a title mark too.** The rename note only came on your own 2nd, 7th, 12th… prompt, and a work room is driven by its parent's messages, so 25 of 30 work rooms never got one. A title with no emoji is now asked about once on any prompt.
+- **The desktop app shows titles as they are.** The sidebar and each window's top bar used to drop a title's leading emoji, which would have hidden 💬 and 🔧. The desktop script no longer learns repo colors from sidebar titles either: the live labels have carried every repo's look since 1.7.0. Needs the new desktop script once: the band offers **Update**.
+- **`/mod_tint icon` takes one emoji, never 💬 or 🔧.** Any other text used to be saved and then led every title.
+
+### Fixed
+- **No more full desktop repaint every 0.4 s while Claude writes.** The desktop script watched the whole page, streamed text included, and each repaint walked every text node in the conversation. It now ignores changes inside the conversation and measures each window before it paints. In a test page, 2 seconds of streamed text caused 5 repaints with 1.8.1 and none now. A failed repaint no longer leaves a second copy running after the next **Run**.
+- **An unreadable `repos.json` can no longer wipe every repo's emoji and color.** A file that did not parse read as empty, and the next save wrote back one repo. Now the change is refused with a message, and saves are written whole (a temporary file, then renamed).
+- **Two windows of one repo starting at the same moment no longer share a number.** Each claim is written at once and checked again; the earlier claim keeps the number, and the heartbeat checks once more.
+- **Crashed or force-quit windows are cleaned up** after a day, like ended ones.
+- **A cheaper heartbeat.** Every 30 seconds each desktop window ran `ps`, read the app's 100 KB settings file and tint's own script, and read `repos.json` twice. Now the script is read once, the settings file only when it changes, and `ps` every 10 minutes. A second session start no longer doubles the clocks.
+- **Updates and the version check can no longer hang.** `claude plugin update` and the marketplace refresh have time limits, and the GitHub version check gives up after 10 seconds.
+
 ## [1.8.1] - 2026-10-12
 
 ### Fixed

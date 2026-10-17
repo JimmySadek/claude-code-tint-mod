@@ -416,6 +416,19 @@
     set(el, '--wt-w3', wash(info, 0.24, weight))
   }
   let focus = null, rows = 0, paints = 0, lastWindows = []
+  // The window you are in is your last choice: a click or the keyboard inside a window chooses it,
+  // a click on a sidebar thread chooses the window that shows that thread (once the app shows it).
+  // The keyboard focus alone missed both: a click on a thread or on a window's conversation
+  // leaves it where it was, so an old window kept the filled highlight in the sidebar.
+  let chosen = null   // { panel } or { sid }
+  const choose = event => {
+    const el = event.target instanceof Element ? event.target : null
+    const panel = el?.closest('.epitaxy-chat-panel')
+    const row = !panel && event.type === 'pointerdown' ? el?.closest('[data-row-key^="code:"]') : null
+    if (panel) chosen = { panel }
+    else if (row) chosen = { sid: row.getAttribute('data-row-key').slice(5) }
+    soon()
+  }
 
   const paint = () => {
     paints++
@@ -427,9 +440,11 @@
     repoOfSid = headings()
     const windows = findWindows()
     lastWindows = [...windows.values()].map(({ sid, repo, color, n }) => ({ sid, repo, color, n, shade: windowShade(color, n) }))
-    const active = document.activeElement && [...windows.keys()].find(p => p.contains(document.activeElement))
-    if (active) focus = active
-    if (!windows.has(focus)) focus = [...windows.keys()][0] ?? null
+    const open = [...windows.keys()]
+    const picked = chosen?.panel && windows.has(chosen.panel) ? chosen.panel
+      : chosen?.sid ? open.find(p => windows.get(p).sid === chosen.sid) : undefined
+    const active = document.activeElement ? open.find(p => p.contains(document.activeElement)) : undefined
+    focus = picked ?? active ?? (windows.has(focus) ? focus : open[0] ?? null)
     const seen = new Set()
     // This paint's ring hosts. After a resize or a window opening or closing, a window's slot
     // can be a different box: the old one must lose its ring even when it is still in use for
@@ -657,8 +672,9 @@
     attributes: true, attributeOldValue: true, attributeFilter: ['alt', 'aria-label', 'data-session-id', 'data-row-key'],
   })
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-mode'] })
-  document.addEventListener('focusin', soon)
-  document.addEventListener('mousedown', soon)
+  // Capture phase: the app cannot stop a click from reaching these.
+  document.addEventListener('focusin', choose, true)
+  document.addEventListener('pointerdown', choose, true)
   window.addEventListener('resize', soon)
   const numberClock = setInterval(numberTick, NUMBER_TICK)
 
@@ -668,8 +684,8 @@
       isOff = true
       observer.disconnect()
       sizes?.disconnect()
-      document.removeEventListener('focusin', soon)
-      document.removeEventListener('mousedown', soon)
+      document.removeEventListener('focusin', choose, true)
+      document.removeEventListener('pointerdown', choose, true)
       window.removeEventListener('resize', soon)
       clearTimeout(timer)
       clearTimeout(labelTimer)

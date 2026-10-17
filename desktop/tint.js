@@ -72,12 +72,14 @@
     return Array.isArray(label?.window) ? label.window : null
   }
   // BANDS: a band holding only the colors offer, read by this script, is hidden: the app's box
-  // around the drawing site (its card), found from the picture's shadow root.
+  // around the drawing site (its card). The window gets a mark and a style rule hides its band's
+  // box, so a box the app replaces (it does, many times a second) is hidden too, with no repaint.
+  // A band outside any window gets its box hidden directly.
   const colorBands = () => carriers(document).flatMap(el => {
     if (labelOf(el)?.band !== 'colors') return []
-    const host = el.getRootNode()?.host
-    const card = host?.closest('[data-engine-site]')?.parentElement
-    return card ? [card] : []
+    const site = el.getRootNode()?.host?.closest('[data-engine-site]')
+    const owner = site?.closest('.epitaxy-chat-panel') ?? site?.parentElement
+    return owner ? [owner] : []
   })
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
@@ -263,8 +265,8 @@
     return new Map(found.map(({ panel, color, sid }) => [panel, { color, n: numbered.get(sid) ?? 1, sid }]))
   }
   const numberTick = () => {
-    // A mod's drawing whose shadow root came after the last repaint: watched from now on.
-    if (watchRoots()) soon()
+    // A mod's drawing whose shadow root came after the last look: watched from now on.
+    lookAtLabels()
     if (shown.size === 0) return
     const before = numbered
     numbered = numbersFor(shown)
@@ -330,8 +332,9 @@
     }
     [data-wt-row] .group:hover { background-color: var(--wt-hover) !important; }
     [data-wt-open] .group { background-color: transparent !important; }
-    [data-wt-open] .group:hover { background-color: var(--wt-hover) !important; }`
-  const MARKS = ['data-wt-tint', 'data-wt-icon', 'data-wt-row', 'data-wt-open', 'data-wt-ring']
+    [data-wt-open] .group:hover { background-color: var(--wt-hover) !important; }
+    [data-wt-band] :has(> [data-engine-site="AbovePrompt"]) { display: none !important; }`
+  const MARKS = ['data-wt-tint', 'data-wt-icon', 'data-wt-row', 'data-wt-open', 'data-wt-ring', 'data-wt-band']
   const RING_PROPS = ['position', '--wt-t', '--wt-l', '--wt-r', '--wt-b', '--wt-radius', '--wt-ring-w', '--wt-ring', '--wt-glow']
   const touched = new Map()   // element -> CSS properties set inline
   const set = (el, prop, value) => {
@@ -351,9 +354,11 @@
     set(el, '--wt-w2', wash(info, 0.10, weight))
     set(el, '--wt-w3', wash(info, 0.24, weight))
   }
-  let focus = null, rows = 0
+  let focus = null, rows = 0, paints = 0
 
   const paint = () => {
+    painted = labelText()
+    paints++
     known = { ...REPOS, ...live() }
     repoOfSid = headings()
     const windows = findWindows()
@@ -472,9 +477,12 @@
     }
 
     // A band that only offers to save colors already shown here: hidden (see BANDS).
-    for (const card of colorBands()) {
-      set(card, 'display', 'none')
-      seen.add(card)
+    const quiet = new Set(colorBands())
+    for (const el of document.querySelectorAll('[data-wt-band]')) if (!quiet.has(el)) el.removeAttribute('data-wt-band')
+    for (const owner of quiet) {
+      if (owner.matches('.epitaxy-chat-panel')) owner.setAttribute('data-wt-band', '')
+      else set(owner, 'display', 'none')
+      seen.add(owner)
     }
     watchRoots()
 
@@ -496,22 +504,32 @@
   // going, and anything outside the windows (the sidebar). Inside a window the conversation
   // (Claude's streamed text, tool output, what you type) changes many times a second and is
   // never painted, so it is ignored.
-  const KEY = `.epitaxy-chat-panel, [data-session-id], .epitaxy-prompt, [data-cds="ChatComposer"], [data-row-key], ${LIVE_SEL}, ${HOSTS}`
+  const KEY = `.epitaxy-chat-panel, [data-session-id], .epitaxy-prompt, [data-cds="ChatComposer"], [data-row-key], ${LIVE_SEL}`
   const QUIET = '.cm-editor, [contenteditable="true"], .xterm'
   const counts = node => node.nodeType === 1 && (node.matches(KEY) || !!node.querySelector(KEY))
   const isLive = value => (value ?? '').startsWith(LIVE)
-  // Inside a mod's shadow root only the live label counts: the band redraws its own boxes often.
-  const labels = new WeakMap()   // shadow root -> its label when last looked at
-  const labelChanged = root => {
-    const now = root.querySelector(LIVE_SEL)
-    const value = now ? now.getAttribute('alt') || now.getAttribute('aria-label') : null
-    if (labels.get(root) === value) return false
-    labels.set(root, value)
-    return true
+  // The mods' drawings: Claude desktop 2.42304 replaces their boxes ([data-plugin-drawn]) about
+  // 48 times a second and redraws inside their shadow roots (the band's glow), so neither ever
+  // repaints by itself. They only ask for a look at the live labels' text (at most every
+  // LABEL_MS), and that repaints only when the text differs from the last paint's.
+  const LABEL_MS = 250
+  const labelText = () => carriers(document).map(el => el.getAttribute('alt') || el.getAttribute('aria-label')).sort().join('\n')
+  let painted = null, labelTimer = null
+  const lookAtLabels = () => {
+    labelTimer = null
+    watchRoots()
+    if (labelText() !== painted) soon()
   }
+  const labelsSoon = () => { if (!labelTimer) labelTimer = setTimeout(lookAtLabels, LABEL_MS) }
+  const drawn = node => node.nodeType === 1 && (node.matches(HOSTS) || !!node.querySelector(HOSTS))
+  const LABELS = 'labels'   // matters(): look at the labels, no repaint yet
   const matters = record => {
     const root = record.target.getRootNode?.()
-    if (root instanceof ShadowRoot) return labelChanged(root)
+    if (root instanceof ShadowRoot) return LABELS
+    if (record.type === 'childList') {
+      const nodes = [...record.addedNodes, ...record.removedNodes].filter(node => node.nodeType === 1)
+      if (nodes.length > 0 && nodes.every(node => drawn(node) && !counts(node))) return LABELS
+    }
     if (record.type === 'attributes') {
       if (record.attributeName === 'alt' || record.attributeName === 'aria-label') {
         return isLive(record.target.getAttribute(record.attributeName)) || isLive(record.oldValue)
@@ -523,9 +541,17 @@
     if (!el.closest('.epitaxy-chat-panel')) return true
     return record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(counts)
   }
-  const observer = new MutationObserver(records => { if (records.some(matters)) soon() })
+  const observer = new MutationObserver(records => {
+    let isDrawing = false
+    for (const record of records) {
+      const verdict = matters(record)
+      if (verdict === true) return soon()
+      if (verdict === LABELS) isDrawing = true
+    }
+    if (isDrawing) labelsSoon()
+  })
   // The mods' shadow roots are not part of the page's tree, so each is watched on its own once
-  // it is there (looked for on each repaint and on the number clock).
+  // it is there (looked for on each repaint, each look at the labels and the number clock).
   const WATCH = { childList: true, subtree: true, attributes: true, attributeFilter: ['alt', 'aria-label'] }
   const watched = new WeakSet()
   const watchRoots = () => {
@@ -535,7 +561,6 @@
       if (!root || watched.has(root)) continue
       watched.add(root)
       observer.observe(root, WATCH)
-      labelChanged(root)
       added = true
     }
     return added
@@ -561,12 +586,14 @@
       document.removeEventListener('mousedown', soon)
       window.removeEventListener('resize', soon)
       clearTimeout(timer)
+      clearTimeout(labelTimer)
       clearTimeout(retry)
       clearInterval(numberClock)
       style.remove()
       for (const el of [...touched.keys()]) clear(el)
       delete window.__windowTint
     },
+    get paints() { return paints },   // repaints since this run, for checking it stays quiet
   }
   safePaint()
   const tinted = [...touched.keys()].filter(el => el.hasAttribute('data-wt-tint')).length

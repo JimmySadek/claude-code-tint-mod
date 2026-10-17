@@ -62,11 +62,6 @@
     ...root.querySelectorAll(LIVE_SEL),
     ...[...root.querySelectorAll(HOSTS)].flatMap(host => (host.shadowRoot ? [...host.shadowRoot.querySelectorAll(LIVE_SEL)] : [])),
   ]
-  const live = () => {
-    const labels = carriers(document).map(labelOf).filter(Boolean)
-    labels.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))   // oldest first, so the newest wins
-    return Object.assign({}, ...labels.map(label => label.repos ?? label))
-  }
   const ownOf = panel => {
     const label = labelOf(carriers(panel)[0] ?? document.createElement('i'))
     return Array.isArray(label?.window) ? label.window : null
@@ -75,12 +70,33 @@
   // around the drawing site (its card). The window gets a mark and a style rule hides its band's
   // box, so a box the app replaces (it does, many times a second) is hidden too, with no repaint.
   // A band outside any window gets its box hidden directly.
-  const colorBands = () => carriers(document).flatMap(el => {
-    if (labelOf(el)?.band !== 'colors') return []
-    const site = el.getRootNode()?.host?.closest('[data-engine-site]')
-    const owner = site?.closest('.epitaxy-chat-panel') ?? site?.parentElement
-    return owner ? [owner] : []
-  })
+  const bandOwner = el => {
+    const site = el.getRootNode()?.host?.closest('[data-engine-site="AbovePrompt"]')
+    return site?.closest('.epitaxy-chat-panel') ?? site?.parentElement ?? null
+  }
+  // What the labels on the page say now: their text (to compare), every repo's look (where labels
+  // disagree, the newest "at" wins) and the bands to hide. A repaint uses the last confirmed state
+  // (see lookAtLabels), never a reading taken while the app is between two boxes.
+  // A band box the app has just put in and not filled yet (no shadow root, or an empty one; a
+  // filled one always holds the app's <style>) makes a reading "between": it is not counted. A box
+  // still empty after BETWEEN_MS is simply empty (a band never drawn), so it never blocks readings.
+  const BETWEEN_MS = 1000
+  const emptySince = new WeakMap()
+  const isBetween = () => {
+    const now = Date.now()
+    return [...document.querySelectorAll(`[data-engine-site="AbovePrompt"] ${HOSTS}`)].some(host => {
+      if (host.shadowRoot && host.shadowRoot.childElementCount > 0) { emptySince.delete(host); return false }
+      if (!emptySince.has(host)) emptySince.set(host, now)
+      return now - emptySince.get(host) < BETWEEN_MS
+    })
+  }
+  const readLabels = () => {
+    const found = carriers(document).map(el => ({ el, label: labelOf(el) })).filter(each => each.label)
+    const text = found.map(({ el }) => el.getAttribute('alt') || el.getAttribute('aria-label')).sort().join('\n')
+    const labels = found.map(each => each.label).sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))   // oldest first
+    const quiet = new Set(found.filter(each => each.label.band === 'colors').map(each => bandOwner(each.el)).filter(Boolean))
+    return { text, repos: Object.assign({}, ...labels.map(label => label.repos ?? label)), quiet, isBetween: isBetween() }
+  }
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
   // A title's mark: "🧪 BAM · Topic", or the form before tint 1.9.0 with a number, "🧪3️⃣ Topic"
@@ -357,9 +373,12 @@
   let focus = null, rows = 0, paints = 0
 
   const paint = () => {
-    painted = labelText()
     paints++
-    known = { ...REPOS, ...live() }
+    // A fresh reading when it says what was confirmed (its boxes are the ones on the page now),
+    // else the confirmed one: the app may be between two boxes this very moment.
+    const reading = readLabels()
+    const said = !reading.isBetween && reading.text === confirmed.text ? (confirmed = reading) : confirmed
+    known = { ...REPOS, ...said.repos }
     repoOfSid = headings()
     const windows = findWindows()
     const active = document.activeElement && [...windows.keys()].find(p => p.contains(document.activeElement))
@@ -477,7 +496,7 @@
     }
 
     // A band that only offers to save colors already shown here: hidden (see BANDS).
-    const quiet = new Set(colorBands())
+    const quiet = said.quiet
     for (const el of document.querySelectorAll('[data-wt-band]')) if (!quiet.has(el)) el.removeAttribute('data-wt-band')
     for (const owner of quiet) {
       if (owner.matches('.epitaxy-chat-panel')) owner.setAttribute('data-wt-band', '')
@@ -493,13 +512,14 @@
       for (const prop of RING_PROPS) if (touched.get(el)?.has(prop)) unset(el, prop)   // only what this script set
     }
     for (const el of [...touched.keys()]) if (!seen.has(el)) clear(el)
+    painted = confirmed.text   // only after a whole paint: a failed one is tried again on the next look
   }
 
   // Redraw at most every 0.4 s while the app changes, and when focus or size changes. A failed
   // repaint is reported and the next change tries again, so one bad paint never leaves it stuck.
   let timer = null
   const safePaint = () => { try { paint() } catch (error) { console.warn('window-tint: repaint failed', error) } }
-  const soon = () => { if (!timer) timer = setTimeout(() => { timer = null; safePaint() }, 400) }
+  const soon = () => { if (!timer && !isOff) timer = setTimeout(() => { timer = null; safePaint() }, 400) }
   // Only changes a repaint can use: windows, sessions, sidebar rows and live labels coming or
   // going, and anything outside the windows (the sidebar). Inside a window the conversation
   // (Claude's streamed text, tool output, what you type) changes many times a second and is
@@ -510,17 +530,35 @@
   const isLive = value => (value ?? '').startsWith(LIVE)
   // The mods' drawings: Claude desktop 2.42304 replaces their boxes ([data-plugin-drawn]) about
   // 48 times a second and redraws inside their shadow roots (the band's glow), so neither ever
-  // repaints by itself. They only ask for a look at the live labels' text (at most every
-  // LABEL_MS), and that repaints only when the text differs from the last paint's.
-  const LABEL_MS = 250
-  const labelText = () => carriers(document).map(el => el.getAttribute('alt') || el.getAttribute('aria-label')).sort().join('\n')
-  let painted = null, labelTimer = null
+  // repaints by itself. They only ask for a look at the live labels (at most every LABEL_MS). A
+  // new reading is confirmed when the same text is seen on CHANGE_LOOKS looks in a row, or on
+  // LOSS_LOOKS when labels only went away (a box the app fills a moment after adding it is not a
+  // label gone); only a confirmed change repaints.
+  const LABEL_MS = 250, LABEL_JITTER_MS = 40, CHANGE_LOOKS = 2, LOSS_LOOKS = 4
+  let confirmed = readLabels(), painted = null, labelTimer = null, pending = null, looks = 0, isOff = false
   const lookAtLabels = () => {
+    clearTimeout(labelTimer)
     labelTimer = null
+    if (isOff) return
     watchRoots()
-    if (labelText() !== painted) soon()
+    const now = readLabels()
+    if (now.isBetween) return labelsSoon()   // the app is between two boxes: look again
+    if (now.text === confirmed.text) {
+      pending = null
+      if (painted !== confirmed.text) soon()   // the last paint failed: again
+      return
+    }
+    looks = pending === now.text ? looks + 1 : 1
+    pending = now.text
+    const had = new Set(confirmed.text.split('\n'))
+    const isLoss = now.text === '' || now.text.split('\n').every(line => had.has(line))
+    if (looks < (isLoss ? LOSS_LOOKS : CHANGE_LOOKS)) return labelsSoon()
+    confirmed = now
+    pending = null
+    soon()
   }
-  const labelsSoon = () => { if (!labelTimer) labelTimer = setTimeout(lookAtLabels, LABEL_MS) }
+  // A little jitter, so looks never fall in step with boxes the app replaces at a steady rate.
+  const labelsSoon = () => { if (!labelTimer && !isOff) labelTimer = setTimeout(lookAtLabels, LABEL_MS + Math.random() * LABEL_JITTER_MS) }
   const drawn = node => node.nodeType === 1 && (node.matches(HOSTS) || !!node.querySelector(HOSTS))
   const LABELS = 'labels'   // matters(): look at the labels, no repaint yet
   const matters = record => {
@@ -545,7 +583,7 @@
     let isDrawing = false
     for (const record of records) {
       const verdict = matters(record)
-      if (verdict === true) return soon()
+      if (verdict === true) { labelsSoon(); return soon() }   // a label in the page itself may have changed too
       if (verdict === LABELS) isDrawing = true
     }
     if (isDrawing) labelsSoon()
@@ -556,6 +594,7 @@
   const watched = new WeakSet()
   const watchRoots = () => {
     let added = false
+    if (isOff) return added
     for (const host of document.querySelectorAll(HOSTS)) {
       const root = host.shadowRoot
       if (!root || watched.has(root)) continue
@@ -580,6 +619,7 @@
   // Set before the first paint, so even a failed one can be turned off by the next Run.
   window.__windowTint = {
     off() {
+      isOff = true
       observer.disconnect()
       sizes?.disconnect()
       document.removeEventListener('focusin', soon)

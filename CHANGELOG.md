@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.11.1] - 2026-10-18
+
+### Fixed
+- **Only the desktop window you are in gets the filled sidebar highlight.** The desktop script took the window holding the keyboard as the one you are in. A click on a window's conversation, or one or two clicks on a sidebar thread, leave the keyboard where it was, so an older window (often one just opened with a double click) kept the filled highlight and the strong ring while you worked elsewhere. Now your last click or keyboard focus inside a window picks it, and a click on a sidebar thread picks the window that shows it, as soon as the app shows it. Switching back to the app, a right click and a thread's … menu do not move it, and a click in a window without a tint leaves no other window filled. Other open threads keep a thin bar, also when the app gives one its own grey. A thread nested under another (it has no rounded pill of its own) is highlighted on its label's rounded box instead of the whole row. Tested on a mock page (a click in a conversation, one click and a double click on a thread, the keyboard, a click on a repo heading, switching back to the app, a right click, a thread's … menu, a window without a tint); there 1.11.0 kept the highlight on a window opened with a double click after a click in another window's conversation, as in the report. Not yet tested in the real app. Needs the new desktop script once: the band offers **Update**.
+
 ## [1.11.0] - 2026-10-17
 
 ### Added

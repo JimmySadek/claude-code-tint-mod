@@ -40,7 +40,7 @@ What it looks for in the app's page (measured on Claude desktop 2.26454, October
 |---|---|
 | A window | `.epitaxy-chat-panel` |
 | The session it shows | `[data-session-id]` inside the window |
-| Its sidebar row | `[data-row-key="code:<session id>"]`; the highlight is the row's `.group` box |
+| Its sidebar row | `[data-row-key="code:<session id>"]`; the highlight is the row's `.group` box (a thread nested under another has none: its label's nearest rounded box) |
 | The message box | `[data-cds="ChatComposer"]`, its text input `.bg-surface-3` |
 | Loading dots / Claude's mark | `[data-cds="WorkingMark"]` / `svg[data-cds="Spark"]` |
 | Colors | the app's `--cds-surface-*` and `--cds-clay` variables |
@@ -72,11 +72,12 @@ The band above the prompt stands still: a fixed color strip, no clock, and for t
 
 How it draws:
 
+- **The window you are in** is your last choice: a click or the keyboard inside a window, or a click (one or two) on a sidebar thread, which picks the window showing that thread once the app shows it. Only that window gets the strong ring and the filled sidebar highlight; other open threads get a thin bar. A click that picks no window (a repo heading, a thread the app does not open), a right click, a thread's own buttons (its … menu) and the keyboard coming back to the same place (when you switch back to the app) change nothing. In a window without a tint (no session or no color yet) no window is the focused one. When the script starts, or once the chosen window closes, the window holding the keyboard counts.
 - **Tints** set the app's own color variables inside each window, so the app keeps drawing everything itself.
 - **The ring** is a layer on the slot around the window, a few pixels outside the window's edge. The script never changes a box's size (an older width limit to even the gaps could keep a window stuck narrow), so the right gap can be a little smaller. Each repaint removes rings left on boxes that are no longer a window's slot.
 - **Loading dots** are drawn in a fixed orange that ignores color settings, so a CSS filter turns that orange into the window's color.
 - **Titles** are left as they are, in the sidebar and in each window's top bar, so a title's emoji (💬, 🔧, a project's) stays in view.
-- **Redraws** happen when a window, session, sidebar row or live label comes, goes or changes (the app replaces the boxes mods draw in many times a second and redraws inside them; those only lead to a look at the labels, at most every 0.25 s. A reading taken while a band box is still empty (just put in by the app) is skipped, the looks come at slightly random moments, and a new reading counts once it is the same on 2 looks in a row, or 4 when labels only went away; only a counted change repaints, and a repaint uses the last counted reading), when anything outside the windows changes, when you click into another window, and when a window changes size. The conversation inside a window (Claude's streamed text, tool output, what you type) changes many times a second and never causes a redraw. Each redraw measures every window first, then paints.
+- **Redraws** happen when a window, session, sidebar row or live label comes, goes or changes (the app replaces the boxes mods draw in many times a second and redraws inside them; those only lead to a look at the labels, at most every 0.25 s. A reading taken while a band box is still empty (just put in by the app) is skipped, the looks come at slightly random moments, and a new reading counts once it is the same on 2 looks in a row, or 4 when labels only went away; only a counted change repaints, and a repaint uses the last counted reading), when anything outside the windows changes, when you click into another window or on a sidebar thread, and when a window changes size. The conversation inside a window (Claude's streamed text, tool output, what you type) changes many times a second and never causes a redraw. Each redraw measures every window first, then paints.
 
 Running the script again removes everything it added and paints from scratch, even after a failed first paint. Reloading the app removes it.
 

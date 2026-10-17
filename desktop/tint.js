@@ -7,7 +7,7 @@
 //
 // What it does (display only; it sends nothing and changes no file; it keeps only its open
 // windows' numbers in the app's local storage, see NUMBERS):
-//   - the window you are typing in: a ring just outside its edge with a soft glow, a tint of
+//   - the window you are in (your last click or keyboard there, see FOCUS): a ring just outside its edge with a soft glow, a tint of
 //     its color on the conversation, and a colored text input;
 //   - other open windows: a lighter tint and a thin ring in their own color;
 //   - the bottom area of each window (git bar, toolbar) keeps the app's own colors;
@@ -29,7 +29,8 @@
 // Built against Claude desktop 2.26454 (October 2026), measured with desktop/scan.js; the live
 // labels follow Claude desktop 2.42304 (mods drawn in open shadow roots on [data-plugin-drawn]):
 //   window = .epitaxy-chat-panel, its session = [data-session-id] inside it;
-//   sidebar row = [data-row-key="code:<session id>"], its highlight = the row's .group box;
+//   sidebar row = [data-row-key="code:<session id>"], its highlight = the row's .group box
+//     (a thread nested under another: its label's nearest rounded box);
 //   message box = [data-cds="ChatComposer"], its text input = .bg-surface-3;
 //   loading dots = [data-cds="WorkingMark"] (drawn in a fixed orange: recolored by a CSS filter),
 //   Claude's mark = svg[data-cds="Spark"] (fill);
@@ -224,7 +225,16 @@
   const skip = el => !!el?.closest('.cm-editor, .prose, pre, code')   // never touch what Claude or you wrote
   const visible = el => el.getClientRects().length > 0
   const rowOf = sid => document.querySelector(`[data-row-key="code:${CSS.escape(sid)}"]`)
-  const pillOf = row => row.querySelector('.group') ?? row
+  // A thread's visible box: the app's rounded pill (.group). A thread nested under another has
+  // none, so the label's nearest rounded box stands in, and only then the whole row.
+  const pillOf = row => {
+    const group = row.querySelector('.group')
+    if (group) return group
+    for (let el = row.querySelector('[data-row-label]')?.parentElement; el && el !== row; el = el.parentElement) {
+      if (parseFloat(getComputedStyle(el).borderTopLeftRadius) > 0) return el
+    }
+    return row
+  }
 
   const titleOf = sid => rowOf(sid)?.querySelector('[data-row-label]')?.textContent.trim() ?? ''
 
@@ -392,10 +402,10 @@
       border-radius: var(--wt-radius); border: var(--wt-ring-w) solid var(--wt-ring); box-shadow: 0 0 14px var(--wt-glow);
     }
     [data-wt-row] .group:hover { background-color: var(--wt-hover) !important; }
-    [data-wt-open] .group { background-color: transparent !important; }
-    [data-wt-open] .group:hover { background-color: var(--wt-hover) !important; }
+    [data-wt-open] .group, [data-wt-open] [data-wt-pill] { background-color: transparent !important; }
+    [data-wt-open] .group:hover, [data-wt-open] [data-wt-pill]:hover { background-color: var(--wt-hover) !important; }
     [data-wt-band] :has(> [data-engine-site="AbovePrompt"]) { display: none !important; }`
-  const MARKS = ['data-wt-tint', 'data-wt-icon', 'data-wt-row', 'data-wt-open', 'data-wt-ring', 'data-wt-band']
+  const MARKS = ['data-wt-tint', 'data-wt-icon', 'data-wt-row', 'data-wt-open', 'data-wt-ring', 'data-wt-band', 'data-wt-pill']
   const RING_PROPS = ['position', '--wt-t', '--wt-l', '--wt-r', '--wt-b', '--wt-radius', '--wt-ring-w', '--wt-ring', '--wt-glow']
   const touched = new Map()   // element -> CSS properties set inline
   const set = (el, prop, value) => {
@@ -416,18 +426,29 @@
     set(el, '--wt-w3', wash(info, 0.24, weight))
   }
   let focus = null, rows = 0, paints = 0, lastWindows = []
-  // The window you are in is your last choice: a click or the keyboard inside a window chooses it,
-  // a click on a sidebar thread chooses the window that shows that thread (once the app shows it).
-  // The keyboard focus alone missed both: a click on a thread or on a window's conversation
-  // leaves it where it was, so an old window kept the filled highlight in the sidebar.
-  let chosen = null   // { panel } or { sid }
+  // FOCUS: the window you are in is your last choice. A click or the keyboard inside a window
+  // chooses it; a click on a sidebar thread (one click or two) chooses the window that shows
+  // that thread, once the app shows it. The keyboard focus alone missed both: a click on a
+  // thread or on a window's conversation leaves it where it was, so an old window kept the
+  // filled highlight. The session is kept too, so a window the app draws again still counts.
+  // Focus coming back to the same box (the app window becomes active again) is no new choice,
+  // and neither is a right click or the thread's own buttons (its ... menu).
+  let chosen = null, lastFocus = null   // chosen: { panel, sid } or { sid }
   const choose = event => {
     const el = event.target instanceof Element ? event.target : null
+    if (event.type === 'focusin') {
+      if (el === lastFocus) return
+      lastFocus = el
+    } else if (event.button !== 0) return
     const panel = el?.closest('.epitaxy-chat-panel')
     const row = !panel && event.type === 'pointerdown' ? el?.closest('[data-row-key^="code:"]') : null
-    if (panel) chosen = { panel }
-    else if (row) chosen = { sid: row.getAttribute('data-row-key').slice(5) }
-    soon()
+    const control = row && el.closest('button, [aria-haspopup]')
+    const before = chosen
+    if (panel) chosen = { panel, sid: panel.querySelector('[data-session-id]')?.getAttribute('data-session-id') }
+    else if (row && !(control && row.contains(control) && !control.contains(row.querySelector('[data-row-label]')))) {
+      chosen = { sid: row.getAttribute('data-row-key').slice(5) }
+    }
+    if (chosen?.panel !== before?.panel || chosen?.sid !== before?.sid) soon()
   }
 
   const paint = () => {
@@ -439,12 +460,16 @@
     known = { ...REPOS, ...said.repos }
     repoOfSid = headings()
     const windows = findWindows()
-    lastWindows = [...windows.values()].map(({ sid, repo, color, n }) => ({ sid, repo, color, n, shade: windowShade(color, n) }))
     const open = [...windows.keys()]
+    // Your choice (see FOCUS), else the window chosen before while it is open, else the one
+    // holding the keyboard (at the start, or once the chosen window closed), else the first.
+    // Chosen but without a tint (no session or no color yet): no window is the focused one.
     const picked = chosen?.panel && windows.has(chosen.panel) ? chosen.panel
       : chosen?.sid ? open.find(p => windows.get(p).sid === chosen.sid) : undefined
-    const active = document.activeElement ? open.find(p => p.contains(document.activeElement)) : undefined
-    focus = picked ?? active ?? (windows.has(focus) ? focus : open[0] ?? null)
+    const isUntinted = !picked && !!chosen?.panel?.isConnected && visible(chosen.panel) && !windows.has(chosen.panel)
+    const active = () => document.activeElement ? open.find(p => p.contains(document.activeElement)) : undefined
+    focus = isUntinted ? null : picked ?? (windows.has(focus) ? focus : active() ?? open[0] ?? null)
+    lastWindows = [...windows].map(([panel, { sid, repo, color, n }]) => ({ sid, repo, color, n, shade: windowShade(color, n), isFocused: panel === focus }))
     const seen = new Set()
     // This paint's ring hosts. After a resize or a window opening or closing, a window's slot
     // can be a different box: the old one must lose its ring even when it is still in use for
@@ -540,14 +565,18 @@
     // Open threads: their color instead of the app's grey; the focused one clearly.
     rows = 0
     document.querySelectorAll('[data-wt-open]').forEach(row => row.removeAttribute('data-wt-open'))
-    for (const [panel, info] of windows) {
+    // The focused window last: when two windows show one thread, its row stays filled.
+    for (const [panel, info] of [...windows].sort(([a], [b]) => (a === focus) - (b === focus))) {
       const row = rowOf(info.sid)
       if (!row) continue
       rows++
       const pill = pillOf(row)
+      pill.setAttribute('data-wt-pill', '')
       const isFocused = panel === focus
-      if (isFocused) set(pill, 'background-color', wash(info, 0.3, 1))
-      else {
+      if (isFocused) {
+        set(pill, 'background-color', wash(info, 0.3, 1))
+        row.removeAttribute('data-wt-open')
+      } else {
         unset(pill, 'background-color')
         row.setAttribute('data-wt-open', '')
         seen.add(row)
@@ -697,7 +726,7 @@
     },
     get paints() { return paints },   // repaints since this run, for checking it stays quiet
     shade: windowShade,               // a window's shade (hex, number), for checks
-    get windows() { return lastWindows },   // each window at the last paint: repo, number, shade
+    get windows() { return lastWindows },   // each window at the last paint: repo, number, shade, focus
   }
   safePaint()
   const tinted = [...touched.keys()].filter(el => el.hasAttribute('data-wt-tint')).length

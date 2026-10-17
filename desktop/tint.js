@@ -402,8 +402,9 @@
       border-radius: var(--wt-radius); border: var(--wt-ring-w) solid var(--wt-ring); box-shadow: 0 0 14px var(--wt-glow);
     }
     [data-wt-row] .group:hover { background-color: var(--wt-hover) !important; }
-    [data-wt-open] .group, [data-wt-open] [data-wt-pill] { background-color: transparent !important; }
-    [data-wt-open] .group:hover, [data-wt-open] [data-wt-pill]:hover { background-color: var(--wt-hover) !important; }
+    [data-wt-row]:not(:has(.group)):hover { background-color: var(--wt-hover) !important; }   /* a nested thread: the row is its box */
+    [data-wt-open] .group, [data-wt-open] [data-wt-pill], [data-wt-open][data-wt-pill] { background-color: transparent !important; }
+    [data-wt-open] .group:hover, [data-wt-open] [data-wt-pill]:hover, [data-wt-open][data-wt-pill]:hover { background-color: var(--wt-hover) !important; }
     [data-wt-band] :has(> [data-engine-site="AbovePrompt"]) { display: none !important; }`
   const MARKS = ['data-wt-tint', 'data-wt-icon', 'data-wt-row', 'data-wt-open', 'data-wt-ring', 'data-wt-band', 'data-wt-pill']
   const RING_PROPS = ['position', '--wt-t', '--wt-l', '--wt-r', '--wt-b', '--wt-radius', '--wt-ring-w', '--wt-ring', '--wt-glow']
@@ -426,6 +427,7 @@
     set(el, '--wt-w3', wash(info, 0.24, weight))
   }
   let focus = null, rows = 0, paints = 0, lastWindows = []
+  let pills = new Set()   // the thread boxes given a fill or bar by the last paint
   // FOCUS: the window you are in is your last choice. A click or the keyboard inside a window
   // chooses it; a click on a sidebar thread (one click or two) chooses the window that shows
   // that thread, once the app shows it. The keyboard focus alone missed both: a click on a
@@ -565,6 +567,15 @@
     // Open threads: their color instead of the app's grey; the focused one clearly.
     rows = 0
     document.querySelectorAll('[data-wt-open]').forEach(row => row.removeAttribute('data-wt-open'))
+    // Last paint's fills and bars come off first. A nested thread has no pill of its own, so its
+    // box is the row, which the hover color above keeps in use: the clean-up at the end never
+    // cleared it, and a thread left in a window kept its fill.
+    for (const pill of pills) {
+      unset(pill, 'background-color')
+      unset(pill, 'box-shadow')
+      pill.removeAttribute('data-wt-pill')
+    }
+    pills = new Set()
     // The focused window last: when two windows show one thread, its row stays filled.
     for (const [panel, info] of [...windows].sort(([a], [b]) => (a === focus) - (b === focus))) {
       const row = rowOf(info.sid)
@@ -572,12 +583,12 @@
       rows++
       const pill = pillOf(row)
       pill.setAttribute('data-wt-pill', '')
+      pills.add(pill)
       const isFocused = panel === focus
       if (isFocused) {
         set(pill, 'background-color', wash(info, 0.3, 1))
         row.removeAttribute('data-wt-open')
       } else {
-        unset(pill, 'background-color')
         row.setAttribute('data-wt-open', '')
         seen.add(row)
       }

@@ -13,12 +13,13 @@ declare module 'claude-code' {
       hasFrame: boolean
       isTitling: boolean
       prompts: number
-      desktopOffer: 'install' | 'update' | 'remind' | null
+      desktopOffer: 'install' | 'update' | 'remind' | 'colors' | null
       glow: number
       remindSince: number | null
       newVersion: string | null
       showAutoHow: boolean
       liveColors: string | null
+      isColorsDue: boolean
     }
   }
 }

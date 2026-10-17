@@ -19,12 +19,14 @@
 //   - windows of one repo get shades by their number (1️⃣ base, 2️⃣ deeper, 3️⃣ paler, ...);
 //   - light and dark mode.
 //
-// A window's color: the live label tint draws in each window's footer (see LIVE), else REPOS
-// (filled from ~/.claude/window-tint/repos.json when the snippet was saved), else the emoji its
-// thread's title starts with, measured by drawing it on a canvas. So a new repo needs no new copy
-// of this script, and a saved DevTools snippet keeps working.
+// A window's color: the live label tint draws above the prompt while colors chosen after the
+// snippet was saved are waiting (see LIVE), else REPOS (filled from ~/.claude/window-tint/repos.json
+// when the snippet was saved), else the emoji its thread's title starts with, measured by drawing
+// it on a canvas. So a new repo needs no new copy of this script, and a saved DevTools snippet
+// keeps working.
 //
-// Built against Claude desktop 2.26454 (October 2026), measured with desktop/scan.js:
+// Built against Claude desktop 2.26454 (October 2026), measured with desktop/scan.js; the live
+// labels follow Claude desktop 2.42304 (mods drawn in open shadow roots on [data-plugin-drawn]):
 //   window = .epitaxy-chat-panel, its session = [data-session-id] inside it;
 //   sidebar row = [data-row-key="code:<session id>"], its highlight = the row's .group box;
 //   message box = [data-cds="ChatComposer"], its text input = .bg-surface-3;
@@ -37,29 +39,46 @@
   if (window.__windowTint) window.__windowTint.off()
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
-  // Live labels: tint draws a 1-pixel picture in each window's footer, labelled
-  // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number]}': every repo's
-  // chosen look, so a color chosen after this script was saved shows on the next repaint, and
-  // the window's own repo and number, so a window is known even with the sidebar hidden.
-  // (tint 1.7.0 labels held the repos map alone.) Claude desktop 2.42304 draws no mod picture in
-  // the footer, so there the labels are missing and REPOS and NUMBERS stand in.
+  // Live labels: while colors chosen after this script was saved wait to be saved into it, tint
+  // draws a 1-pixel picture in the band above each window's prompt, labelled
+  // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number], "at": ms, "band": "colors"}':
+  // every repo's chosen look, so such a color shows on the next repaint, and the window's own repo
+  // (its number is the mod's, so the windows' own agreement in NUMBERS is used instead: a window
+  // without a label could take the same one). "at" is when that window's copy of the mod last read
+  // a change in the colors, so where labels disagree (another window not caught up yet) the newest
+  // wins. "band": "colors" says the band only offers to save those colors: they already show here,
+  // so the band is hidden (see BANDS). (tint 1.7.0 labels held the repos map alone; up to 1.9.1 the
+  // picture sat in the footer, where Claude desktop 2.42304 keeps only text and buttons.)
+  // The page draws each mod's tree inside an open shadow root on a [data-plugin-drawn] box, so the
+  // labels are looked for there too. Nothing is remembered: with no label (nothing left to save, or
+  // a question card in the band for a while) REPOS stands in.
   const LIVE = 'tint-colors '
   const LIVE_SEL = `[alt^="${LIVE}"], [aria-label^="${LIVE}"]`
+  const HOSTS = '[data-plugin-drawn]'
   const labelOf = el => {
     try { return JSON.parse((el.getAttribute('alt') || el.getAttribute('aria-label')).slice(LIVE.length)) } catch { return null }
   }
+  const carriers = root => [
+    ...root.querySelectorAll(LIVE_SEL),
+    ...[...root.querySelectorAll(HOSTS)].flatMap(host => (host.shadowRoot ? [...host.shadowRoot.querySelectorAll(LIVE_SEL)] : [])),
+  ]
   const live = () => {
-    const out = {}
-    for (const el of document.querySelectorAll(LIVE_SEL)) {
-      const label = labelOf(el)
-      Object.assign(out, label?.repos ?? label ?? {})
-    }
-    return out
+    const labels = carriers(document).map(labelOf).filter(Boolean)
+    labels.sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))   // oldest first, so the newest wins
+    return Object.assign({}, ...labels.map(label => label.repos ?? label))
   }
   const ownOf = panel => {
-    const label = labelOf(panel.querySelector(LIVE_SEL) ?? document.createElement('i'))
+    const label = labelOf(carriers(panel)[0] ?? document.createElement('i'))
     return Array.isArray(label?.window) ? label.window : null
   }
+  // BANDS: a band holding only the colors offer, read by this script, is hidden: the app's box
+  // around the drawing site (its card), found from the picture's shadow root.
+  const colorBands = () => carriers(document).flatMap(el => {
+    if (labelOf(el)?.band !== 'colors') return []
+    const host = el.getRootNode()?.host
+    const card = host?.closest('[data-engine-site]')?.parentElement
+    return card ? [card] : []
+  })
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
   // A title's mark: "🧪 BAM · Topic", or the form before tint 1.9.0 with a number, "🧪3️⃣ Topic"
@@ -180,8 +199,8 @@
   }
   let known = REPOS, repoOfSid = new Map()
 
-  // NUMBERS: windows of one repo take numbers (1, 2, 3...), so each gets its own shade. Without
-  // the mod's labels the windows agree among themselves, the way the mod does: every app window
+  // NUMBERS: windows of one repo take numbers (1, 2, 3...), so each gets its own shade. The
+  // windows agree among themselves, the way the mod does: every app window
   // shares this local storage, where each keeps its own windows' numbers. A window keeps its
   // number while open and takes the lowest free one when it opens. A number not refreshed for
   // NUMBER_MS is free again (its window closed, or its app window no longer runs this script).
@@ -236,14 +255,16 @@
         repo = repoBySid.get(sid).repo ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
       }
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
-      if (color) found.push({ panel, color, sid, group: repo ?? color, own: Number(own?.[1]) || null })
+      if (color) found.push({ panel, color, sid, group: repo ?? color })
     }
-    // The mod's number where its label is drawn, else the windows' own agreement.
-    shown = new Map(found.filter(each => !each.own).map(each => [each.sid, each.group]))
+    // Always the windows' own agreement, never a label's number (see LIVE).
+    shown = new Map(found.map(each => [each.sid, each.group]))
     numbered = numbersFor(shown)
-    return new Map(found.map(({ panel, color, sid, own }) => [panel, { color, n: own ?? numbered.get(sid) ?? 1, sid }]))
+    return new Map(found.map(({ panel, color, sid }) => [panel, { color, n: numbered.get(sid) ?? 1, sid }]))
   }
   const numberTick = () => {
+    // A mod's drawing whose shadow root came after the last repaint: watched from now on.
+    if (watchRoots()) soon()
     if (shown.size === 0) return
     const before = numbered
     numbered = numbersFor(shown)
@@ -450,6 +471,13 @@
       seen.add(pill)
     }
 
+    // A band that only offers to save colors already shown here: hidden (see BANDS).
+    for (const card of colorBands()) {
+      set(card, 'display', 'none')
+      seen.add(card)
+    }
+    watchRoots()
+
     // Rings left from an earlier layout go, even on boxes still in use.
     for (const el of document.querySelectorAll('[data-wt-ring]')) {
       if (rings.has(el)) continue
@@ -468,11 +496,22 @@
   // going, and anything outside the windows (the sidebar). Inside a window the conversation
   // (Claude's streamed text, tool output, what you type) changes many times a second and is
   // never painted, so it is ignored.
-  const KEY = `.epitaxy-chat-panel, [data-session-id], .epitaxy-prompt, [data-cds="ChatComposer"], [data-row-key], ${LIVE_SEL}`
+  const KEY = `.epitaxy-chat-panel, [data-session-id], .epitaxy-prompt, [data-cds="ChatComposer"], [data-row-key], ${LIVE_SEL}, ${HOSTS}`
   const QUIET = '.cm-editor, [contenteditable="true"], .xterm'
   const counts = node => node.nodeType === 1 && (node.matches(KEY) || !!node.querySelector(KEY))
   const isLive = value => (value ?? '').startsWith(LIVE)
+  // Inside a mod's shadow root only the live label counts: the band redraws its own boxes often.
+  const labels = new WeakMap()   // shadow root -> its label when last looked at
+  const labelChanged = root => {
+    const now = root.querySelector(LIVE_SEL)
+    const value = now ? now.getAttribute('alt') || now.getAttribute('aria-label') : null
+    if (labels.get(root) === value) return false
+    labels.set(root, value)
+    return true
+  }
   const matters = record => {
+    const root = record.target.getRootNode?.()
+    if (root instanceof ShadowRoot) return labelChanged(root)
     if (record.type === 'attributes') {
       if (record.attributeName === 'alt' || record.attributeName === 'aria-label') {
         return isLive(record.target.getAttribute(record.attributeName)) || isLive(record.oldValue)
@@ -485,6 +524,22 @@
     return record.type === 'childList' && [...record.addedNodes, ...record.removedNodes].some(counts)
   }
   const observer = new MutationObserver(records => { if (records.some(matters)) soon() })
+  // The mods' shadow roots are not part of the page's tree, so each is watched on its own once
+  // it is there (looked for on each repaint and on the number clock).
+  const WATCH = { childList: true, subtree: true, attributes: true, attributeFilter: ['alt', 'aria-label'] }
+  const watched = new WeakSet()
+  const watchRoots = () => {
+    let added = false
+    for (const host of document.querySelectorAll(HOSTS)) {
+      const root = host.shadowRoot
+      if (!root || watched.has(root)) continue
+      watched.add(root)
+      observer.observe(root, WATCH)
+      labelChanged(root)
+      added = true
+    }
+    return added
+  }
   // Size changes without any page change (a side panel closed, a splitter dragged) redraw too.
   const sizes = 'ResizeObserver' in window ? new ResizeObserver(soon) : null
   observer.observe(document.body, {

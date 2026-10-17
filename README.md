@@ -100,7 +100,7 @@ Updates: when a new version is out, the band says **✨ New version** with an **
 
 A mod can draw inside the conversation, but not the app around it. So tint saves a small script in the desktop app's **DevTools** as a snippet named `tint`. **Color the app** opens Terminal, which quits Claude (when Claude asks *Claude is still working…*, click **Quit anyway**), backs up its settings to `~/.claude/window-tint/Preferences.backup`, saves the snippet, turns on Developer Mode and opens Claude again. The Terminal window closes by itself when it is done.
 
-The script only changes how the open page looks. It sends nothing and changes no file. Colors you choose later show right away, with no reinstall. To turn it off, reload the app.
+The script only changes how the open page looks. It sends nothing and changes no file. Colors you choose later show right away, with no reinstall (the band above the prompt carries them until you save them with **Update**). To turn it off, reload the app.
 
 It can't start by itself: the app refuses outside scripts and debugging switches, which protects your signed-in account. A saved snippet is the safe way in.
 

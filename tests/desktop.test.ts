@@ -240,7 +240,7 @@ test('desktop band: Color the app runs the same install as /mod_tint desktop go'
   await ui.unmount()
 })
 
-test('desktop band: an older snippet offers the update; repo colors alone never count; Later waits for the next version', async ($, on) => {
+test('desktop band: an older snippet offers the update; repo colors are not the script\'s update; Later waits for the next version', async ($, on) => {
   const files = new Map<string, string>([
     [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
     [`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{"old":["#000000","⬛"]}/*REPOS*/ // tint')],
@@ -249,6 +249,7 @@ test('desktop band: an older snippet offers the update; repo colors alone never 
   await $.session.start(START)
   const same = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
   expect(await same.find({ key: 'desktop-update' })).toBeUndefined()
+  expect(await same.find({ key: 'desktop-colors' })).toBeDefined()
   await same.unmount()
 
   files.set(`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{}/*REPOS*/ // tint v0'))
@@ -261,6 +262,110 @@ test('desktop band: an older snippet offers the update; repo colors alone never 
   const after = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
   expect(await after.find({ key: 'desktop-update' })).toBeUndefined()
   await after.unmount()
+})
+
+const carried = async (ui: { find: (q: { type: string }) => Promise<{ props: Record<string, unknown> } | undefined> }) => {
+  const tag = await ui.find({ type: 'Svg' })
+  return tag === undefined ? undefined : JSON.parse(String(tag.props.alt).slice('tint-colors '.length))
+}
+
+test('desktop band: colors chosen after the snippet was saved ride in the band; Later waits for the next color', async ($, on) => {
+  const saved = 'const REPOS = /*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/ // tint'
+  const files = new Map<string, string>([
+    [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
+    [`${APP}/Preferences`, prefsWith(saved)],
+  ])
+  const out = desktopWorld(on, files)
+  await $.session.start(START)
+  // The snippet has every color: no band, no picture.
+  const none = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await none.find({ type: 'Svg' })).toBeUndefined()
+  expect(await none.find({ key: 'desktop-colors' })).toBeUndefined()
+  await none.unmount()
+
+  // A color chosen now: the band offers to keep it and carries it for the running script at once.
+  await $.command.run({ command: 'mod_tint', args: 'color #7C3AED', ...AT_PROMPT })
+  await out.clock.settle()
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  const label = await carried(ui)
+  expect(label.repos['lab-notes']).toEqual(['#7C3AED', '🧪'])
+  expect(label.window).toEqual(['lab-notes', 1])
+  // When this copy read the change, so the newest of several windows' labels wins.
+  const pickedAt = label.at
+  expect(pickedAt).toBeGreaterThan(0)
+  // Only the colors offer in the band: the script may hide it, since its colors already show.
+  expect(label.band).toBe('colors')
+  // A colors band stays still (no clock redrawing it while hidden).
+  const glowBefore = await ui.find({ key: 'glow-0' })
+  await out.clock.advance(2_000)
+  expect((await ui.find({ key: 'glow-0' }))?.props.backgroundColor).toBe(glowBefore?.props.backgroundColor)
+  // Later: the offer goes for this app start (no band, so no picture either).
+  await ui.press({ key: 'desktop-colors-later' })
+  expect(await ui.find({ key: 'desktop-colors' })).toBeUndefined()
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  await ui.unmount()
+  await $.session.start(START)
+  const later = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await later.find({ key: 'desktop-colors' })).toBeUndefined()
+  await later.unmount()
+  // Later never stops the colors: after the next app start the reminder carries them, so the
+  // script shows them once it runs, and after Done the offer is back.
+  out.ps = APP_ROW('Fri Oct  9 09:00:00 2026')
+  await $.session.start(START)
+  const restarted = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await restarted.find({ key: 'desktop-done' })).toBeDefined()
+  expect((await carried(restarted)).repos['lab-notes'][0]).toBe('#7C3AED')
+  await restarted.press({ key: 'desktop-done' })
+  await out.clock.settle()
+  expect(await restarted.find({ key: 'desktop-colors' })).toBeDefined()
+  await restarted.unmount()
+
+  // Hidden tint: no band, no picture.
+  await $.command.run({ command: 'mod_tint', args: 'off', ...AT_PROMPT })
+  const hidden = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await hidden.find({ type: 'Svg' })).toBeUndefined()
+  await hidden.unmount()
+  await $.command.run({ command: 'mod_tint', args: 'on', ...AT_PROMPT })
+
+  // Another color: back again. Update saves the snippet with it.
+  await $.command.run({ command: 'mod_tint', args: 'color teal', ...AT_PROMPT })
+  await out.clock.settle()
+  const again = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect((await carried(again)).repos['lab-notes'][0]).toBe('#14B8A6')
+  expect((await carried(again)).at).toBeGreaterThan(pickedAt)
+  await again.press({ key: 'desktop-colors' })
+  expect(out.runs.some(argv => argv[0] === 'open' && argv.includes('Terminal'))).toBe(true)
+  expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('"lab-notes":["#14B8A6","🧪"]')
+  await again.unmount()
+
+  // Saved: nothing more to carry.
+  files.set(`${APP}/Preferences`, prefsWith(files.get(`${DIR}/desktop-snippet.js`)!))
+  await $.session.start(START)
+  const done = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await done.find({ type: 'Svg' })).toBeUndefined()
+  await done.unmount()
+})
+
+test('desktop band: after an app start the reminder carries due colors too, but is never hidden', async ($, on) => {
+  const files = new Map<string, string>([
+    [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#7C3AED' } })],
+    [`${APP}/Preferences`, prefsWith('const REPOS = /*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/ // tint')],
+  ])
+  const out = desktopWorld(on, files)
+  out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
+  await $.session.start(START)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ key: 'desktop-done' })).toBeDefined()
+  const label = await carried(ui)
+  expect(label.repos['lab-notes'][0]).toBe('#7C3AED')
+  expect(label.band).toBeUndefined()
+  // Done: the colors offer takes its place, and that one may be hidden.
+  await ui.press({ key: 'desktop-done' })
+  await out.clock.settle()
+  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  expect((await carried(ui)).band).toBe('colors')
+  await ui.unmount()
 })
 
 test('desktop band: after each app start, how to turn the colors on; Done until the app starts again', async ($, on) => {

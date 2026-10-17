@@ -104,7 +104,8 @@ const hasFrame = atom({ plugin: 'tint', key: 'hasFrame' } as const, false)
 const isTitling = atom({ plugin: 'tint', key: 'isTitling' } as const, true)
 const prompts = atom({ plugin: 'tint', key: 'prompts' } as const, 0)
 // What the band above the desktop prompt offers: install the desktop colors, update them,
-// or remind how to turn them on after an app start. null shows nothing.
+// remind how to turn them on after an app start, or keep colors chosen since the snippet was
+// saved. null shows nothing.
 const desktopOffer = atom({ plugin: 'tint', key: 'desktopOffer' } as const, null)
 // The desktop band's color clock: one step every GLOW_MS while the band shows.
 const glow = atom({ plugin: 'tint', key: 'glow' } as const, 0)
@@ -114,11 +115,16 @@ const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
 const newVersion = atom({ plugin: 'tint', key: 'newVersion' } as const, null)
 // Set by the band's Turn on auto-update: the band then shows where to click.
 const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
-// For desktop/tint.js, the label of a 1-pixel picture in the desktop prompt's footer (LIVE_TAG):
-// `{"repos": {name: [color, emoji]}, "window": [repo, number]}`, every repo's chosen look and
-// this window's own repo and number. The saved snippet reads it on each repaint, so a color
-// chosen later shows at once, and a window is known without the sidebar (hidden or not).
+// For desktop/tint.js, the label of a 1-pixel picture in the band above the desktop prompt
+// (LIVE_TAG): `{"repos": {name: [color, emoji]}, "window": [repo, number]}`, every repo's chosen
+// look and this window's own repo and number. The saved snippet reads it on each repaint, so a
+// color chosen after the snippet was saved shows at once.
+// Claude desktop 2.42304 keeps only text and buttons in the footer (SessionMode), so the picture
+// rides in the band, whenever one is drawn while isColorsDue: repos.json differs from the colors
+// saved in the snippet. The page draws a mod's tree in an open shadow root, where the script looks
+// for it. "at" is when this copy last read a change in the colors: the newest label wins.
 const liveColors = atom({ plugin: 'tint', key: 'liveColors' } as const, null)
+const isColorsDue = atom({ plugin: 'tint', key: 'isColorsDue' } as const, false)
 const LIVE_TAG = 'tint-colors '
 const LIVE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
 
@@ -462,8 +468,10 @@ async function savedSnippet($: EngineInterface): Promise<string | null> {
 // What the person answered in the desktop band, shared by every window (desktop.json):
 // declined the install, put off one script version, or turned the colors on after one app start.
 // snoozedFor/snoozedAt: the reminder counted down unanswered for that app start, at that clock time.
+// colorsLater/colorsLaterFor: put off saving one set of repo colors (colorsMark) for one app start.
 type DesktopState = {
   isInstallDeclined?: boolean; updateLater?: string; doneFor?: string; snoozedFor?: string; snoozedAt?: number
+  colorsLater?: string; colorsLaterFor?: string
 }
 
 async function desktopState($: EngineInterface): Promise<DesktopState> {
@@ -492,19 +500,42 @@ async function appStarted($: EngineInterface): Promise<string | null> {
   return appStart.value
 }
 
-// A mark for the mod's script, repo colors left out: the script learns them itself.
+// A mark for the mod's script, repo colors left out: they have an offer of their own (colors).
 const scriptMark = (script: string) => hash(script.replace(REPOS_PART, ''), 7).toString(16)
 
+// The repo colors saved in a snippet (between its /*REPOS*/ marks); {} when it has none.
+function savedColors(script: string): Record<string, [string, string]> {
+  const part = REPOS_PART.exec(script)?.[0]
+  try {
+    return part ? JSON.parse(part.slice('/*REPOS*/'.length, -'/*REPOS*/'.length)) : {}
+  } catch {
+    return {}
+  }
+}
+// A mark for one set of repo colors, so Later waits for the next color change.
+const colorsMark = (repos: Record<string, [string, string]>) => hash(JSON.stringify(repos), 7).toString(16)
+
 // In the desktop app, what the band above the prompt offers: the install (no snippet yet),
-// the update (the saved snippet is an older script), or once per app start how to turn the
-// colors on. Each stays away once answered, for every window.
+// the update (the saved snippet is an older script), once per app start how to turn the
+// colors on, or saving colors chosen since the snippet was saved (colors). Each stays away
+// once answered, for every window. While colors are due, any band drawn carries them for the
+// running script too (isColorsDue), so they show at once and the script hides a colors band.
+// Later on the colors offer holds for that set of colors during this app start only, and never
+// stops another band carrying them.
 async function refreshOffer($: EngineInterface): Promise<void> {
   if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return
   const saved = await savedSnippet($)
-  // Repo colors play no part in the mark, so the plain source does (no repos.json read).
+  // Repo colors play no part in the script's mark: the plain source is enough for it.
   const script = await tintSourceOf($)
   const state = await desktopState($)
-  let offer: 'install' | 'update' | 'remind' | null = null
+  // A repo whose color or emoji the saved snippet does not have yet (a repo it never had counts).
+  const repos = desktopRepos(await readChoices($))
+  const kept = saved === null ? {} : savedColors(saved)
+  const isStale = Object.entries(repos).some(([shown, [hex, mark]]) => kept[shown]?.[0] !== hex || kept[shown]?.[1] !== mark)
+  const isDue = script !== null && saved !== null && isStale
+  const thisStart = isDue ? await appStarted($) : null
+  const isPutOff = state.colorsLater === colorsMark(repos) && state.colorsLaterFor === (thisStart ?? undefined)
+  let offer: 'install' | 'update' | 'remind' | 'colors' | null = null
   if (script === null) offer = null
   else if (saved === null) offer = state.isInstallDeclined ? null : 'install'
   else if (scriptMark(saved) !== scriptMark(script) && state.updateLater !== scriptMark(script)) offer = 'update'
@@ -512,8 +543,9 @@ async function refreshOffer($: EngineInterface): Promise<void> {
     const started = await appStarted($)
     const isSnoozed = started !== null && state.snoozedFor === started && state.snoozedAt !== undefined &&
       (await $.clock.now()) - state.snoozedAt < REMIND_AGAIN_MS
-    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : null
+    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : isDue && !isPutOff ? 'colors' : null
   }
+  await update($, isColorsDue, () => isDue)
   await update($, desktopOffer, () => offer)
   if (offer !== 'remind' && (await read($, newVersion)) === null) {
     remindDrawn = false
@@ -528,7 +560,8 @@ let remindDrawn = false
 // The update line rode along in the same band, so it goes too (it comes back next session).
 async function remindDone($: EngineInterface): Promise<void> {
   await saveDesktopState($, { doneFor: (await appStarted($)) ?? undefined })
-  await update($, desktopOffer, () => null)
+  // Asked again rather than cleared: colors still to be saved take the reminder's place.
+  await refreshOffer($)
   await bandDone($)
 }
 
@@ -537,7 +570,7 @@ async function remindDone($: EngineInterface): Promise<void> {
 // 1 AM with nobody there, and the colors stayed off all morning with no word about it).
 async function remindLater($: EngineInterface): Promise<void> {
   await saveDesktopState($, { snoozedFor: (await appStarted($)) ?? undefined, snoozedAt: await $.clock.now() })
-  await update($, desktopOffer, () => null)
+  await refreshOffer($)
   await bandDone($)
 }
 
@@ -680,11 +713,21 @@ async function heartbeat($: EngineInterface, ended = false): Promise<void> {
   await $.fs.write(`${await folder($)}/windows/${id}.json`, JSON.stringify(record))
 }
 
+// The colors this copy last put in the live label, and when they changed (the label's "at").
+let liveRead = { repos: '', at: 0 }
+
 async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const all = await readChoices($)
   const choice = all[key] ?? {}
-  const tag = LIVE_TAG + JSON.stringify({ repos: desktopRepos(all), window: [key, (await read($, number)) ?? 1] })
-  if ((await read($, liveColors)) !== tag) await update($, liveColors, () => tag)
+  const repos = desktopRepos(all)
+  const seen = JSON.stringify(repos)
+  if (seen !== liveRead.repos) liveRead = { repos: seen, at: await $.clock.now() }
+  const tag = LIVE_TAG + JSON.stringify({ repos, window: [key, (await read($, number)) ?? 1], at: liveRead.at })
+  if ((await read($, liveColors)) !== tag) {
+    await update($, liveColors, () => tag)
+    // A color or emoji just chosen: the desktop band carries it now, not at the next heartbeat.
+    void refreshOffer($).catch(() => null)
+  }
   // Marks a title may lose: a color square, and any emoji this repo had before, unless another
   // repo has it now (a work room of that repo named with it at birth keeps it).
   const before = [...(choice.pastIcons ?? []), ...(choice.previous?.icon ? [choice.previous.icon] : [])]
@@ -1258,7 +1301,8 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
 async function glowTick($: EngineInterface): Promise<void> {
   const offer = await read($, desktopOffer)
   const fresh = await read($, newVersion)
-  if (offer === null && fresh === null) return
+  // A colors band stays still: the running script hides it, so a clock would redraw it for nothing.
+  if ((offer === null || offer === 'colors') && fresh === null) return
   await update($, glow, n => n + 1)
   // On the desktop the reminder and a lone update notice count down.
   const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
@@ -1653,30 +1697,20 @@ export const register: Register = on => {
     )
   })
 
-  // Desktop: the 1-pixel picture whose label hands desktop/tint.js the chosen colors and this
-  // window's repo, in the footer beside the mode labels. Not above the prompt: the app wraps
-  // anything drawn there in an empty padded card, and a question card can replace that band.
-  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    const native = await next(e)
-    if (e.surface !== 'desktop' || (await read($, isHidden))) return native
-    const live = await read($, liveColors)
-    if (live === null) return native
-    const { Box, Svg } = $.ui.resolve(e)
-    return (
-      <Box flexDirection="row" alignItems="center">
-        {native}
-        <Svg key="tint-colors" source={LIVE_SVG} alt={live} width={1} height={1} />
-      </Box>
-    )
-  })
-
   // Desktop: a band above the prompt only when there is something to do (see refreshOffer).
+  // While colors are due it carries the 1-pixel picture whose label hands desktop/tint.js every
+  // repo's chosen look (see liveColors). A band that is only the colors offer says so in the
+  // label ("band": "colors"), and the running script hides it: its colors already show.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, isHidden))) return next(e)
     const offer = await read($, desktopOffer)
     const fresh = await read($, newVersion)
     if (offer === null && fresh === null) return next(e)
-    const { Box, Text, Button, Markdown } = $.ui.resolve(e)
+    const { Box, Text, Button, Markdown, Svg } = $.ui.resolve(e)
+    const live = (await read($, isColorsDue)) ? await read($, liveColors) : null
+    const carried = live === null ? null : offer === 'colors' && fresh === null
+      ? LIVE_TAG + JSON.stringify({ ...JSON.parse(live.slice(LIVE_TAG.length)), band: 'colors' })
+      : live
     const settle = async (change: DesktopState, note?: string) => {
       await saveDesktopState($, change)
       await update($, desktopOffer, () => null)
@@ -1694,16 +1728,22 @@ export const register: Register = on => {
       $.ui.toast(copied.isCopied ? 'tint: copied. Paste it to a friend 💌' : `tint: ${REPO_URL}`)
     }
     const later = async () => settle({ updateLater: scriptMark((await tintScript($)) ?? '') })
+    const colorsLater = async () =>
+      settle({ colorsLater: colorsMark(desktopRepos(await readChoices($))), colorsLaterFor: (await appStarted($)) ?? undefined })
     // Each offer: a one-line title in Markdown (so the mod's name is a bold link to its page,
     // to find it again and share it), then one line per step with what to press in bold.
     type Part = string | { bold: string }
     const MOD = `[**tint mod ↗**](${REPO_URL})`
-    const lines: Record<'install' | 'update' | 'remind', { title: string; steps: Part[][] }> = {
+    const lines: Record<'install' | 'update' | 'remind' | 'colors', { title: string; steps: Part[][] }> = {
       install: {
         title: `**Color the whole app** with your ${MOD}?`,
         steps: [['Click ', { bold: 'Color the app' }, '. Claude closes and opens again by itself (a few seconds).']],
       },
       update: {
+        title: `**An update** for your ${MOD} is ready`,
+        steps: [['Click ', { bold: 'Update' }, '. Claude closes and opens again by itself (a few seconds).']],
+      },
+      colors: {
         title: `**New colors** for your ${MOD} are ready`,
         steps: [['Click ', { bold: 'Update' }, '. Claude closes and opens again by itself (a few seconds).']],
       },
@@ -1730,6 +1770,7 @@ export const register: Register = on => {
     const lit = left === null ? GLOW_BLOCKS : Math.ceil((GLOW_BLOCKS * left) / REMIND_MS)
     return (
       <Box flexDirection="column" borderStyle="bold" borderColor={now}>
+        {carried !== null && <Svg key="tint-colors" source={LIVE_SVG} alt={carried} width={1} height={1} />}
         <Box key="top" alignItems="center" gap={2}>
           <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
             {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
@@ -1758,6 +1799,8 @@ export const register: Register = on => {
               {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
               {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
               {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
+              {offer === 'colors' && <Button key="desktop-colors" label="Update" onPress={install} />}
+              {offer === 'colors' && <Button key="desktop-colors-later" label="Later" plain onPress={colorsLater} />}
               {offer === 'remind' && <Button key="desktop-done" label="✅ Done" onPress={() => remindDone($)} />}
               {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" plain onPress={share} />}
             </Box>

@@ -2,6 +2,15 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.10.0] - 2026-10-17
+
+### Fixed
+- **Colors you pick show in the desktop app again without saving the script.** Claude desktop 2.42304 keeps only text and buttons in the prompt footer, so the 1-pixel label that carried every repo's colors to the desktop script was dropped. A color picked with `/mod_tint` after the snippet was saved never showed. The label now rides in the band above the prompt, only while `repos.json` has colors the saved snippet lacks. The desktop script finds it inside the app's shadow root, shows the colors at once and hides the band. If the script is not running, the band stays and offers **Update**, which saves the colors into the snippet (**Later** puts it off until the app starts again; the reminder still carries the colors). Where two windows' labels disagree for a moment, the newest wins. Going back to the saved colors shows them again, at once in the window where you change it and within 30 seconds elsewhere. Found from the app's page code (it keeps an `Svg` above the prompt, drawn as `<img alt>` in an open shadow root). Tested on a mock page; not yet in the real app. Needs the new desktop script once: the band offers **Update**.
+
+### Changed
+- The band's script update now reads **An update for your tint mod is ready**, so it is not mistaken for the new colors offer.
+- The desktop script always gives windows their shades by its own agreement (1.9.1), never by a label's number, so a window with a label and one without can no longer share a shade.
+
 ## [1.9.1] - 2026-10-17
 
 ### Fixed

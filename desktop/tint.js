@@ -16,7 +16,8 @@
 //     the thread of the focused window gets its color instead of the app's grey, other open
 //     threads a thin bar, and hovering a thread tints it in its repo's color;
 //   - the loading dots and Claude's mark in each window take that window's color;
-//   - windows of one repo get shades by their number (1️⃣ base, 2️⃣ deeper, 3️⃣ paler, ...);
+//   - windows of one repo get shades by their number: 1 is the repo's own color, 2 to 10 each a
+//     step away in lightness, hue and chroma (see SHADES), the 11th wraps to the first;
 //   - light and dark mode.
 //
 // A window's color: the live label tint draws above the prompt while colors chosen after the
@@ -102,20 +103,64 @@
   // A title's mark: "🧪 BAM · Topic", or the form before tint 1.9.0 with a number, "🧪3️⃣ Topic"
   // (that number was frozen when the window started, so it is never read as the window's).
   const TITLE = new RegExp(`^(${EMOJI})(?:([0-9])\\uFE0F?\\u20E3|([1-9][0-9]))?\\s`, 'u')
-  const SHADES = [0, -0.42, 0.5, -0.62, 0.68]   // accent per window number, as window-tint's footer
-  const DEPTH = [1, 1.8, 0.55, 2.4, 0.4]        // background depth per window number
   const FOCUSED = 1, OTHER = 0.55               // how much tint a window gets
   const GAP = 8                                 // px between a window's edge and its ring
-  const at = (list, n) => list[(((n - 1) % list.length) + list.length) % list.length]
 
   // Colors.
   const rgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
   const hex = c => '#' + c.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')
   const blend = (a, b, t) => { const B = rgb(b); return hex(rgb(a).map((v, i) => v + (B[i] - v) * t)) }   // t: 0 = a, 1 = b
   const isDark = () => document.documentElement.getAttribute('data-mode') === 'dark'
-  const accent = ({ color, n }) => { const s = at(SHADES, n); return hex(rgb(color).map(v => (s < 0 ? v * (1 + s) : v + (255 - v) * s))) }
+  // Window shades: window 1 is the repo's own color; windows 2 to 10 move it in OKLCH (perceived
+  // lightness, chroma, hue) by one step each, so they look different from each other in light
+  // and dark mode, also for very light or dark colors; the 11th wraps to the first. A step:
+  // [lightness move as a share of the room left (-1 darker .. 1 lighter), hue turn in degrees,
+  // chroma factor]. Lightness stays between SHADE_FLOOR and SHADE_CEIL, so no shade disappears on
+  // a white or a dark background; a color lighter or darker than SHADE_ANCHOR steps from its
+  // nearest end, so its shades stay apart too.
+  // The steps go farthest first: each next window takes the shade whose smallest difference to
+  // the windows before it is largest, worst case over 16 saved repo colors, so 2, 3 or 4 open
+  // windows of a repo get the most different shades. Same table in hooks/register.tsx.
+  const SHADES = [[1, -35, 0.73], [-1, -35, 0.85], [0.46, 35, 0.55], [0.16, -32, 1.35], [0.19, 35, 1.34], [-1, 21, 1.35], [0.8, 9, 1.3], [-0.18, -35, 1.35], [-0.21, 35, 1.3]]
+  const SHADE_SPAN = 0.394, SHADE_FLOOR = 0.38, SHADE_CEIL = 0.88, SHADE_ANCHOR = [0.45, 0.81]
+  const toLinear = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
+  const toByte = v => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)
+  const oklch = hex => {
+    const [r, g, b] = [1, 3, 5].map(i => toLinear(parseInt(hex.slice(i, i + 2), 16)))
+    const [l, m, s] = [
+      0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b,
+      0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+      0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b,
+    ].map(Math.cbrt)
+    const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+    const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+    const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+    return [L, Math.hypot(A, B), (Math.atan2(B, A) * 180 / Math.PI + 360) % 360]
+  }
+  const fromOklch = (L, C, H) => {   // chroma lowered until the color fits sRGB
+    for (let i = 0; i <= 60; i++, C *= 0.95) {
+      const A = i === 60 ? 0 : C * Math.cos(H * Math.PI / 180), B = i === 60 ? 0 : C * Math.sin(H * Math.PI / 180)
+      const [l, m, s] = [L + 0.3963377774 * A + 0.2158037573 * B, L - 0.1055613458 * A - 0.0638541728 * B, L - 0.0894841775 * A - 1.2914855480 * B].map(v => v ** 3)
+      const lin = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s]
+      if (i === 60 || lin.every(v => v >= -1e-4 && v <= 1 + 1e-4)) {
+        return '#' + lin.map(v => Math.round(toByte(Math.min(1, Math.max(0, v)))).toString(16).padStart(2, '0')).join('').toUpperCase()
+      }
+    }
+  }
+  const windowShade = (hex, n) => {
+    const step = SHADES[(((n - 1) % 10) + 10) % 10 - 1]
+    if (!step) return hex   // window 1: the repo's own color, as given
+    const [dl, dh, dc] = step
+    const [L0, C, H] = oklch(hex)
+    // Very light or dark colors step from the nearest lightness with room on both sides.
+    const L = Math.min(Math.max(L0, SHADE_ANCHOR[0]), SHADE_ANCHOR[1])
+    const L2 = L + dl * Math.min(SHADE_SPAN, dl > 0 ? SHADE_CEIL - L : L - SHADE_FLOOR)
+    return fromOklch(Math.min(Math.max(L2, SHADE_FLOOR), SHADE_CEIL), (dh ? Math.max(C, 0.06) : C) * dc, (H + dh + 360) % 360)
+  }
+  // A window's ring, outline and sidebar bar take its shade; so does its background tint.
+  const accent = ({ color, n }) => windowShade(color, n)
   const wash = ({ color, n }, amount, weight) =>
-    blend(isDark() ? '#1F1E1D' : '#FFFFFF', color, Math.min(0.6, amount * at(DEPTH, n) * weight * (isDark() ? 1.6 : 1)))
+    blend(isDark() ? '#1F1E1D' : '#FFFFFF', windowShade(color, n), Math.min(0.6, amount * weight * (isDark() ? 1.6 : 1)))
   const readable = color => (isDark() ? blend(color, '#FFFFFF', 0.3) : color)
   const hsl = hex => {   // [hue 0-360, saturation 0-1, lightness 0-1]
     const [r, g, b] = rgb(hex).map(v => v / 255)
@@ -273,12 +318,12 @@
         repo = repoBySid.get(sid).repo ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
       }
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
-      if (color) found.push({ panel, color, sid, group: repo ?? color })
+      if (color) found.push({ panel, color, sid, repo, group: repo ?? color })
     }
     // Always the windows' own agreement, never a label's number (see LIVE).
     shown = new Map(found.map(each => [each.sid, each.group]))
     numbered = numbersFor(shown)
-    return new Map(found.map(({ panel, color, sid }) => [panel, { color, n: numbered.get(sid) ?? 1, sid }]))
+    return new Map(found.map(({ panel, color, sid, repo }) => [panel, { color, n: numbered.get(sid) ?? 1, sid, repo }]))
   }
   const numberTick = () => {
     // A mod's drawing whose shadow root came after the last look: watched from now on.
@@ -370,7 +415,7 @@
     set(el, '--wt-w2', wash(info, 0.10, weight))
     set(el, '--wt-w3', wash(info, 0.24, weight))
   }
-  let focus = null, rows = 0, paints = 0
+  let focus = null, rows = 0, paints = 0, lastWindows = []
 
   const paint = () => {
     paints++
@@ -381,6 +426,7 @@
     known = { ...REPOS, ...said.repos }
     repoOfSid = headings()
     const windows = findWindows()
+    lastWindows = [...windows.values()].map(({ sid, repo, color, n }) => ({ sid, repo, color, n, shade: windowShade(color, n) }))
     const active = document.activeElement && [...windows.keys()].find(p => p.contains(document.activeElement))
     if (active) focus = active
     if (!windows.has(focus)) focus = [...windows.keys()][0] ?? null
@@ -634,6 +680,8 @@
       delete window.__windowTint
     },
     get paints() { return paints },   // repaints since this run, for checking it stays quiet
+    shade: windowShade,               // a window's shade (hex, number), for checks
+    get windows() { return lastWindows },   // each window at the last paint: repo, number, shade
   }
   safePaint()
   const tinted = [...touched.keys()].filter(el => el.hasAttribute('data-wt-tint')).length

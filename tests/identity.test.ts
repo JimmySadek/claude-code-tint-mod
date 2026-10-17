@@ -117,7 +117,7 @@ test('first window of a repo: Claude picks an emoji and exact color once, and it
     plugin: 'tint', surface: 'desktop', component: 'UserMessage',
     props: { text: 'hello', origin: { kind: 'composer' }, isExpanded: true } as never,
   })
-  expect((await message.find({ key: 'tint-frame' }))?.props.borderColor).toBe('#2563eb')
+  expect((await message.find({ key: 'tint-frame' }))?.props.borderColor).toBe('#2563EB')
   await message.unmount()
 
   // Picked once: the next session of the repo does not ask again.
@@ -441,7 +441,7 @@ test('measured: a vivid emoji gives the color, compiled once and kept per emoji'
     plugin: 'tint', surface: 'desktop', component: 'UserMessage',
     props: { text: 'hello', origin: { kind: 'composer' }, isExpanded: true } as never,
   })
-  expect((await message.find({ key: 'tint-frame' }))?.props.borderColor).toBe('#259f3e')
+  expect((await message.find({ key: 'tint-frame' }))?.props.borderColor).toBe('#259F3E')
   await message.unmount()
 })
 

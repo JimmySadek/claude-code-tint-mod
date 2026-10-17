@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.10.1-46AD5B" alt="Version 1.10.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.11.0-46AD5B" alt="Version 1.11.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://code.claude.com/docs/en/plugins/mods/overview"><img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757" alt="Claude Code 2.1.287 or later"></a>
 </p>
@@ -16,7 +16,7 @@
 |---|---|
 | 🪟 **Window titles** | `🧪 Shop · Login bug`: the repo's emoji, then the project and the main topic |
 | 💻 **Terminal** | a strip in the repo's color above the prompt, with the window's number |
-| 🖥️ **Desktop app** | the whole app in color: a ring around the window you're in (each number its own shade), a soft tint, colored repo names in the sidebar |
+| 🖥️ **Desktop app** | the whole app in color: a ring around the window you're in (each window of a repo its own shade, up to 10), a soft tint, colored repo names in the sidebar |
 
 ---
 

@@ -71,8 +71,54 @@ const GLYPHS: Record<Pattern, string> = {
   triangles: '◢◤', circles: '●○', stripes: '╱╱', diamonds: '◆◇',
   waves: '∿∿', hexes: '⬢⬡', blocks: '▚▞', chevrons: '❯❯',
 }
-// Window 1 is the base color, then darker, lighter, darker still...
-const SHADES = [0, -0.42, 0.5, -0.62, 0.68]
+// Window shades: window 1 is the repo's own color; windows 2 to 10 move it in OKLCH (perceived
+// lightness, chroma, hue) by one step each, so they look different from each other in light
+// and dark mode, also for very light or dark colors; the 11th wraps to the first. A step:
+// [lightness move as a share of the room left (-1 darker .. 1 lighter), hue turn in degrees,
+// chroma factor]. Lightness stays between SHADE_FLOOR and SHADE_CEIL, so no shade disappears on
+// a white or a dark background; a color lighter or darker than SHADE_ANCHOR steps from its
+// nearest end, so its shades stay apart too.
+// The steps go farthest first: each next window takes the shade whose smallest difference to
+// the windows before it is largest, worst case over 16 saved repo colors, so 2, 3 or 4 open
+// windows of a repo get the most different shades. Same table in desktop/tint.js.
+const SHADES: ReadonlyArray<readonly [number, number, number]> = [[1, -35, 0.73], [-1, -35, 0.85], [0.46, 35, 0.55], [0.16, -32, 1.35], [0.19, 35, 1.34], [-1, 21, 1.35], [0.8, 9, 1.3], [-0.18, -35, 1.35], [-0.21, 35, 1.3]]
+const SHADE_SPAN = 0.394, SHADE_FLOOR = 0.38, SHADE_CEIL = 0.88
+const SHADE_ANCHOR = [0.45, 0.81] as const
+const toLinear = (v: number): number => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4 }
+const toByte = (v: number): number => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)
+const oklch = (hex: string): [number, number, number] => {
+  const [r = 0, g = 0, b = 0] = [1, 3, 5].map(i => toLinear(parseInt(hex.slice(i, i + 2), 16)))
+  const [l, m, s] = [
+    0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b,
+    0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+    0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b,
+  ].map(Math.cbrt) as [number, number, number]
+  const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+  const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+  return [L, Math.hypot(A, B), (Math.atan2(B, A) * 180 / Math.PI + 360) % 360]
+}
+const fromOklch = (L: number, C: number, H: number): string => {   // chroma lowered until the color fits sRGB
+  for (let i = 0; i <= 60; i++, C *= 0.95) {
+    const A = i === 60 ? 0 : C * Math.cos(H * Math.PI / 180), B = i === 60 ? 0 : C * Math.sin(H * Math.PI / 180)
+    const [l, m, s] = [L + 0.3963377774 * A + 0.2158037573 * B, L - 0.1055613458 * A - 0.0638541728 * B, L - 0.0894841775 * A - 1.2914855480 * B].map(v => v ** 3) as [number, number, number]
+    const lin = [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s]
+    if (i === 60 || lin.every(v => v >= -1e-4 && v <= 1 + 1e-4)) {
+      return '#' + lin.map(v => Math.round(toByte(Math.min(1, Math.max(0, v)))).toString(16).padStart(2, '0')).join('').toUpperCase()
+    }
+  }
+  return '#808080'
+}
+const windowShade = (hex: string, n: number): string => {
+  const step = SHADES[(((n - 1) % 10) + 10) % 10 - 1]
+  if (!step) return hex   // window 1: the repo's own color, as given
+  const [dl, dh, dc] = step
+  const [L0, C, H] = oklch(hex)
+  // Very light or dark colors step from the nearest lightness with room on both sides.
+  const L = Math.min(Math.max(L0, SHADE_ANCHOR[0]), SHADE_ANCHOR[1])
+  const L2 = L + dl * Math.min(SHADE_SPAN, dl > 0 ? SHADE_CEIL - L : L - SHADE_FLOOR)
+  return fromOklch(Math.min(Math.max(L2, SHADE_FLOOR), SHADE_CEIL), (dh ? Math.max(C, 0.06) : C) * dc, (H + dh + 360) % 360)
+}
 const HEARTBEAT_MS = 30_000
 // Rows the person sent; notices, task reports and other sessions' messages get no border.
 const OWN_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
@@ -786,7 +832,7 @@ async function markOf($: EngineInterface, key: string): Promise<string> {
 async function look($: EngineInterface): Promise<{ key: string; tone: string; kind: Pattern; label: string }> {
   const key = (await read($, repo)) ?? '…'
   const n = await read($, number)
-  const tone = shade(fill((await read($, color)) ?? autoColor(key)), SHADES[((n ?? 1) - 1) % SHADES.length] ?? 0)
+  const tone = windowShade(fill((await read($, color)) ?? autoColor(key)), n ?? 1)
   const kind = ((await read($, pattern)) ?? autoPattern(key)) as Pattern
   const mark = await markOf($, key)
   const own = await read($, name)
@@ -1412,7 +1458,7 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     // The band's countdown: it reads state each second and writes only when a band starts or ends.
     timers.push($.clock.every(BAND_TICK_MS, () => void bandTick($).catch(() => undefined)))
     void rememberFolder($, key).catch(() => null)
-    // A frame turned on or off in another window, or before 1.10.1: the hook follows.
+    // A frame turned on or off in another window, or before 1.11.0: the hook follows.
     void syncFrame($).catch(() => null)
     const n = await claimNumber($, key, await $.session.id(), now)
     await update($, repo, () => key)

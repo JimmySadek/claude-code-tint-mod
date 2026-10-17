@@ -11,7 +11,8 @@ const HOME = '/home/me'
 const AT_PROMPT = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 const DIR = `${HOME}/.claude/window-tint`
 
-test('second window of a repo gets #2, same color, and /mod_tint works', async ($, on) => {
+// With the frame option on, as after /mod_tint frame on reloads the plugin (see the frame tests in desktop.test.ts).
+test('second window of a repo gets #2, same color, and /mod_tint works', { options: { frame: true } }, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
 

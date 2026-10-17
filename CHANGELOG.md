@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.10.1] - 2026-10-17
+
+### Fixed
+- **Messages in the desktop app no longer blink.** tint hooked the drawing of your messages for its optional frame, even with the frame off. In Claude desktop 2.42304 a plugin that hooks a component has every instance of it drawn through plugins, so every message sat in a mod's box that the page drew again on each session-wide redraw, and the bubble faded out and back in (every half second while tint's band was animating, less often after). The frame is now a plugin option, kept in step with `/mod_tint frame on` and `off`: while no repo has its frame on (the default) tint has no hook on messages at all, and the app draws them itself. Turning the frame on or off reloads tint once. The option is one switch for all windows, so while any repo has the frame on, every window's messages are drawn through tint again (and can flicker); `/mod_tint frame on` says so. The option is hidden in `/config`: `repos.json` decides. Found from the app's page code and the engine's own description of `hooked`; tested in the test suite, not yet in the real app.
+- **The desktop band stands still.** Its color strip no longer moves and its countdown no longer ticks each second: every change redrew the band. It now reads "Closes by itself in a minute" and is drawn again only when what it says changes (its state is written only when it changes, not on every 30-second heartbeat).
+
 ## [1.10.0] - 2026-10-17
 
 ### Fixed

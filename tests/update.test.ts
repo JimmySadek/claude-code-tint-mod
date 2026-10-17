@@ -138,7 +138,7 @@ test('update: on the desktop, the update line rides along with the 2-step remind
   await ui.unmount()
 })
 
-test('update: alone on the desktop it counts down 60 s, then hides until the next session', async ($, on) => {
+test('update: alone on the desktop it closes by itself after 60 s, until the next session', async ($, on) => {
   const APP = `${HOME}/Library/Application Support/Claude`
   const files = new Map<string, string>([
     [`${APP}/Preferences`, JSON.stringify({ electron: { devtools: { preferences: {
@@ -151,7 +151,7 @@ test('update: alone on the desktop it counts down 60 s, then hides until the nex
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
   expect(await ui.find({ key: 'desktop-share' })).toBeUndefined()
   expect(await ui.find({ key: 'update-now' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /⏳ 60s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /⏳ Closes by itself in a minute/ })).toBeDefined()
   await out.clock.advance(61_000)
   expect(await ui.find({ key: 'update-now' })).toBeUndefined()
   await ui.unmount()

@@ -16,6 +16,10 @@ Why two parts: a mod can draw inside the conversation, but it is sealed off from
 - **Number:** windows of the same repository agree on numbers through small files in `~/.claude/window-tint/windows/`. A window writes its claim at once and checks again; when two claim the same number at the same moment, the earlier claim keeps it (then the lower session id), and the 30-second heartbeat checks once more. Records not seen for a day are deleted. The number shows in the terminal strip and the desktop ring's shade, never in the title: a title lasts, a number is only the window's slot while it is open.
 - **Saving:** `repos.json` is written whole (a temporary file, then renamed over it). A `repos.json` that is there but cannot be read is never written over: the change is refused and says so, since a save would keep one repository and lose the rest.
 
+## The frame around your messages
+
+`/mod_tint frame on` draws a border in the window's color around your own messages; it is off at first. The border is a `UserMessage` drawing hook, and a plugin that hooks a component has every instance of it drawn through plugins. In Claude desktop 2.42304 each message then sits in a mod's box that the page draws again on every session-wide redraw, and the bubble fades out and back in. So the hook exists only while some repository has its frame on: `frame` is a plugin option (`userConfig`), kept in step with `repos.json` by the mod (`/mod_tint frame on` and `off`, tint's tool, and each session start). A change to an option reloads the plugin, which then registers the hook or leaves it out. With the frame off in every repository, tint draws nothing around messages and the app draws them itself. The option is one switch for all windows: while any repository has its frame on, every window's messages are drawn through tint (those with the frame off get no border). Its `/config` row is hidden, since `repos.json` decides and a change there would be undone at the next start; if this install names the row differently, the mod finds tint's own `.frame` row, and says so when the change is refused.
+
 ## Titles
 
 A title is the repository's emoji, a space, then **Project · topic** (`🧪 Shop · Login bug`): the project in a word or two, then the main thread in 2 to 4 words, with no status words, dates or window number.
@@ -60,6 +64,8 @@ The app keeps DevTools snippets in its settings file, `~/Library/Application Sup
 5. It opens the app again and exits. Nothing keeps running.
 
 At the start of a desktop session, on each heartbeat and right after a color or emoji changes, the mod compares the saved snippet with its own script and says when an update is ready. Repo colors are compared on their own: colors the snippet lacks bring the **New colors** offer and the live picture described above. **Later** puts the offer off for that set of colors until the app starts again; the picture still rides in any other band. With nothing left to save there is no picture, and the script goes back to the saved colors. It reads the app's settings file again only when its modification time changes, and asks `ps` for the app's start time once per session start and then every 10 minutes.
+
+The band above the prompt stands still: a fixed color strip, no clock, and for the reminder "Closes by itself in a minute". A clock tick each second only reads state, and writes when a band starts or ends, so the band is drawn again only when what it says changes.
 
 How it draws:
 

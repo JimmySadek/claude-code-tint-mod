@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, FsEntry, Register, RenderSurface, Timer } from 'claude-code'
+import type { ConfigRow, EngineInterface, FsEntry, Register, RenderSurface, Timer } from 'claude-code'
 
 // Every window of a repository shares one identity: an emoji that says what
 // the repo is, chosen once by Claude, and a color measured from that emoji as
@@ -107,8 +107,6 @@ const prompts = atom({ plugin: 'tint', key: 'prompts' } as const, 0)
 // remind how to turn them on after an app start, or keep colors chosen since the snippet was
 // saved. null shows nothing.
 const desktopOffer = atom({ plugin: 'tint', key: 'desktopOffer' } as const, null)
-// The desktop band's color clock: one step every GLOW_MS while the band shows.
-const glow = atom({ plugin: 'tint', key: 'glow' } as const, 0)
 // When this window first showed the turn-on reminder (clock ms), for its countdown.
 const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
 // A newer tint release than the one running, when auto-update is off; null shows nothing.
@@ -163,7 +161,7 @@ const USAGE = [
   '| `/mod_tint repick` | Claude suggests a few new emoji that fit the repository; you pick one. |',
   '| `/mod_tint undo` | Go back to the emoji and color before the last change. |',
   '| `/mod_tint pattern waves` | Terminal strip pattern: ' + PATTERNS.join(', ') + '. |',
-  '| `/mod_tint frame on` · `off` | A colored border around your own messages (off at first). |',
+  '| `/mod_tint frame on` · `off` | A colored border around your own messages (off at first). While any repo has it on, the desktop app draws every window\'s messages through tint, which can make them flicker. |',
   '| `/mod_tint reset` | Forget this repository\'s choices; Claude picks again. |',
   '',
   '**Desktop app**',
@@ -545,8 +543,9 @@ async function refreshOffer($: EngineInterface): Promise<void> {
       (await $.clock.now()) - state.snoozedAt < REMIND_AGAIN_MS
     offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : isDue && !isPutOff ? 'colors' : null
   }
-  await update($, isColorsDue, () => isDue)
-  await update($, desktopOffer, () => offer)
+  // Written only when they change: each write draws the band again.
+  if ((await read($, isColorsDue)) !== isDue) await update($, isColorsDue, () => isDue)
+  if ((await read($, desktopOffer)) !== offer) await update($, desktopOffer, () => offer)
   if (offer !== 'remind' && (await read($, newVersion)) === null) {
     remindDrawn = false
     await update($, remindSince, () => null)
@@ -715,6 +714,38 @@ async function heartbeat($: EngineInterface, ended = false): Promise<void> {
 
 // The colors this copy last put in the live label, and when they changed (the label's "at").
 let liveRead = { repos: '', at: 0 }
+
+// The frame around your own messages is drawn by a UserMessage hook, and a plugin that hooks a
+// component has every instance of it drawn through plugins: on Claude desktop 2.42304 each of
+// your messages then sits in a mod's box that the page draws again on every session-wide redraw,
+// and the bubble fades out and back in. So the hook exists only while some repo has its frame
+// on: the plugin option `frame` (userConfig), kept in step with repos.json here. A change to an
+// option reloads the plugin, and register reads it again.
+// The option is one hook for every window: while any repo has its frame on, every window's
+// messages are drawn through tint (repos with the frame off draw no border, but are hooked).
+// Its /config row is hidden (see register): repos.json decides, and a change there would be
+// undone at the next start.
+const FRAME_OPTION = 'tint.frame'
+let isFrameHooked = false
+async function setFrameOption($: EngineInterface, value: boolean): Promise<string | null> {
+  const isSet = (answer: unknown) => !!answer && !(typeof answer === 'object' && 'deny' in answer)
+  const first = await $.config.set({ key: FRAME_OPTION, value }).catch((error: unknown) => ({ deny: errorText(error) }))
+  if (isSet(first)) return null
+  // A row this install names another way (the types name `<plugin>.<field>`): tint's own `.frame`.
+  const row = (await $.config.list().catch((): ConfigRow[] => []))
+    .find(each => each.provider.plugin === 'tint' && each.key.endsWith('.frame') && each.key !== FRAME_OPTION)
+  if (row !== undefined && isSet(await $.config.set({ key: row.key, value }).catch(() => null))) return null
+  return (first as { deny?: string }).deny ?? 'no option row for the frame'
+}
+async function syncFrame($: EngineInterface, isAsked = false): Promise<void> {
+  const isWanted = Object.values(await readChoices($)).some(choice => choice.frame === true)
+  if (isWanted === isFrameHooked) return
+  const refused = await setFrameOption($, isWanted)
+  // Said only after a change you asked for; at a start it waits for the next one.
+  if (refused !== null && isAsked) $.ui.toast(`tint: the message frame could not be turned ${isWanted ? 'on' : 'off'} (${refused}).`)
+}
+// After a frame change: once the answer has gone out, since the option reloads the plugin.
+const syncFrameSoon = ($: EngineInterface) => { $.clock.after(0, () => void syncFrame($, true).catch(() => undefined)) }
 
 async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const all = await readChoices($)
@@ -1141,8 +1172,10 @@ async function pickOnFirstPrompt($: EngineInterface): Promise<void> {
 
 // The desktop band's colors: this repo's color, lightened to read on dark, then violet, sky,
 // pink and orange (bright enough for dark mode, bold enough for light), blended in GLOW_SUB
-// steps each. The strip, the border and the words to press all take them from one clock.
-const GLOW_MS = 500
+// steps each, laid along the strip. The band stands still: on Claude desktop 2.42304 every
+// redraw of a mod's drawing is redone in the page, so nothing in it moves on a clock. The clock
+// (BAND_TICK_MS) only closes a band whose minute is up.
+const BAND_TICK_MS = 1_000
 const GLOW_SUB = 8
 const REPO_URL = 'https://github.com/JimmySadek/claude-code-tint-mod'   // shown small on the desktop band, to find and share the mod
 const SHARE_TEXT = `I color my Claude Code windows with tint 🎨 Every repo gets its own emoji and color, in the terminal and the desktop app. ${REPO_URL}`
@@ -1297,13 +1330,12 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
   return { text: desktopStarted(copied.isCopied ? null : line, false), isOpened: false }
 }
 
-// One step of the band's color clock, and the countdown of the reminder or a lone update notice.
-async function glowTick($: EngineInterface): Promise<void> {
+// The countdown of the reminder or a lone update notice: it writes only when one starts or ends,
+// so the band is drawn again only then.
+async function bandTick($: EngineInterface): Promise<void> {
   const offer = await read($, desktopOffer)
   const fresh = await read($, newVersion)
-  // A colors band stays still: the running script hides it, so a clock would redraw it for nothing.
   if ((offer === null || offer === 'colors') && fresh === null) return
-  await update($, glow, n => n + 1)
   // On the desktop the reminder and a lone update notice count down.
   const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
     (offer === 'remind' || (offer === null && fresh !== null))
@@ -1377,9 +1409,11 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     await update($, showAutoHow, () => false)
     void refreshOffer($).catch(() => null)
     void checkUpdate($).catch(() => null)
-    // The band's color clock runs only while the band shows, so it costs nothing otherwise.
-    timers.push($.clock.every(GLOW_MS, () => void glowTick($).catch(() => undefined)))
+    // The band's countdown: it reads state each second and writes only when a band starts or ends.
+    timers.push($.clock.every(BAND_TICK_MS, () => void bandTick($).catch(() => undefined)))
     void rememberFolder($, key).catch(() => null)
+    // A frame turned on or off in another window, or before 1.10.1: the hook follows.
+    void syncFrame($).catch(() => null)
     const n = await claimNumber($, key, await $.session.id(), now)
     await update($, repo, () => key)
     await update($, number, () => n)
@@ -1456,6 +1490,7 @@ async function setLook($: EngineInterface, input: SetInput): Promise<{ result: s
   if (input.frame !== undefined || input.pattern !== undefined) {
     await saveChoice($, key, { ...(input.frame !== undefined ? { frame: input.frame } : {}), ...(input.pattern ? { pattern: input.pattern } : {}) })
     await applyChoice($, key)
+    if (input.frame !== undefined) syncFrameSoon($)
     if (input.frame !== undefined) done.push(`Border around messages ${input.frame ? 'on' : 'off'} for ${key}.`)
     if (input.pattern) done.push(`Pattern is now ${input.pattern}.`)
   }
@@ -1502,7 +1537,11 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
     await saveChoice($, key, { frame: wanted === 'on' })
     await applyChoice($, key)
-    return { text: `Border around your messages is ${wanted} for ${key}. ${later}` }
+    syncFrameSoon($)
+    const note = wanted === 'on'
+      ? ' tint reloads once to draw it. While any repo has it on, the desktop app draws every window\'s messages through tint, which can make them flicker.'
+      : ''
+    return { text: `Border around your messages is ${wanted} for ${key}. ${later}${note}` }
   }
   if (verb === 'reset') {
     // Everything goes but the list of past emoji, so titles still showing one get the new one.
@@ -1594,7 +1633,12 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
   return await ask('intent')
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
+  isFrameHooked = options.frame === true
+
+  // The frame option follows repos.json (see syncFrame), so /config does not offer it.
+  on('config.describe', { key: 'tint.frame' }, async ($, e, next) => ({ ...(await next(e)), isHidden: true }))
+
   on('session.start', async ($, e, next) => {
     await startUp($, e.isInteractive)
     return next(e)
@@ -1649,22 +1693,25 @@ export const register: Register = on => {
   // Box with width or minWidth around its bubble ("engine node under a Box with
   // prop width") and then draws the plain bubble, with no border. The price: the
   // bubble takes a share of the frame, so very short messages wrap ("o/k").
-  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
-    const native = await next(e)
-    const isOwn = OWN_ORIGINS.has(e.props.origin.kind) && !e.props.task && !e.props.from
-    if (!isOwn || (await read($, isHidden)) || !(await read($, hasFrame)) || (await read($, repo)) === null) {
-      return native
-    }
-    const { tone } = await look($)
-    const { Box } = $.ui.resolve(e)
-    return (
-      <Box flexDirection="column" alignItems="flex-end">
-        <Box key="tint-frame" flexDirection="column" alignItems="flex-end" borderStyle="bold" borderColor={tone}>
-          {native}
+  // Only while some repo has its frame on (see syncFrame).
+  if (isFrameHooked) {
+    on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+      const native = await next(e)
+      const isOwn = OWN_ORIGINS.has(e.props.origin.kind) && !e.props.task && !e.props.from
+      if (!isOwn || (await read($, isHidden)) || !(await read($, hasFrame)) || (await read($, repo)) === null) {
+        return native
+      }
+      const { tone } = await look($)
+      const { Box } = $.ui.resolve(e)
+      return (
+        <Box flexDirection="column" alignItems="flex-end">
+          <Box key="tint-frame" flexDirection="column" alignItems="flex-end" borderStyle="bold" borderColor={tone}>
+            {native}
+          </Box>
         </Box>
-      </Box>
-    )
-  })
+      )
+    })
+  }
 
   // Terminal: a strip above the prompt.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -1758,29 +1805,25 @@ export const register: Register = on => {
     }
     const { title, steps } = offer === null ? { title: '', steps: [] } : lines[offer]
     const base = fill((await read($, color)) ?? autoColor((await read($, repo)) ?? '…'))
-    const step = await read($, glow)
-    const now = glowColor(base, step)
-    // The reminder's strip is its countdown: full at first, shorter each second, gone at zero.
-    // It starts the first time the band is drawn here (the clock tick reads this note), so a
-    // survey or a late draw costs nothing. Drawing itself never writes state.
+    const now = glowColor(base, 0)
+    // The reminder and a lone update notice close by themselves after REMIND_MS. The minute
+    // starts the first time the band is drawn here (the clock tick reads this note), so a
+    // survey or a late draw costs nothing. Drawing itself never writes state, and reads no
+    // clock: the band is drawn again only when what it says changes.
     const timed = offer === 'remind' || (offer === null && fresh !== null)
     if (timed) remindDrawn = true
-    const since = await read($, remindSince)
-    const left = timed ? (since === null ? REMIND_MS : Math.max(0, REMIND_MS - ((await $.clock.now()) - since))) : null
-    const lit = left === null ? GLOW_BLOCKS : Math.ceil((GLOW_BLOCKS * left) / REMIND_MS)
     return (
       <Box flexDirection="column" borderStyle="bold" borderColor={now}>
         {carried !== null && <Svg key="tint-colors" source={LIVE_SVG} alt={carried} width={1} height={1} />}
         <Box key="top" alignItems="center" gap={2}>
           <Box key="glow" flexDirection="row" flexGrow={1} height={0.75}>
             {Array.from({ length: GLOW_BLOCKS }, (_, k) => (
-              <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={k < lit ? glowColor(base, step - k) : '#3A3836'} />
+              <Box key={`glow-${k}`} flexGrow={1} height={0.75} backgroundColor={glowColor(base, -k)} />
             ))}
           </Box>
-          {left !== null && (
+          {timed && (
             <Box key="desktop-timer" gap={1} alignItems="center" paddingRight={1}>
-              <Text dimColor>Auto-closes in</Text>
-              <Text key="desktop-left" bold color={now}>⏳ {Math.ceil(left / 1000)}s</Text>
+              <Text key="desktop-left" dimColor>⏳ Closes by itself in a minute</Text>
             </Box>
           )}
         </Box>

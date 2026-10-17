@@ -432,7 +432,7 @@ test('desktop band: a copy that never got session.start starts when the desktop 
   await ui.unmount()
 })
 
-test('desktop band: the reminder counts down 60 seconds, hides, and comes back after 10 minutes until Done', async ($, on) => {
+test('desktop band: the reminder stands still, hides after 60 seconds, and comes back after 10 minutes until Done', async ($, on) => {
   const files = new Map<string, string>([[`${APP}/Preferences`, prefsWith(TEMPLATE)]])
   const out = desktopWorld(on, files)
   out.ps = APP_ROW('Fri Oct  9 03:36:30 2026')
@@ -440,11 +440,13 @@ test('desktop band: the reminder counts down 60 seconds, hides, and comes back a
   // Time before the band is first drawn (a survey up, say) does not count.
   await out.clock.advance(20_000)
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  expect(await ui.find({ type: 'Text', text: /⏳ 60s/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Auto-closes in' })).toBeDefined()
-  // The clock tick after the first draw starts it (at most half a second later).
+  expect(await ui.find({ type: 'Text', text: /⏳ Closes by itself in a minute/ })).toBeDefined()
+  // Nothing in the band moves: the desktop draws a mod's box again on every redraw.
+  const strip = (await ui.find({ key: 'glow-0' }))?.props.backgroundColor
+  // The clock tick after the first draw starts the minute (at most a second later).
   await out.clock.advance(10_500)
-  expect(await ui.find({ type: 'Text', text: /⏳ 50s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /⏳ Closes by itself in a minute/ })).toBeDefined()
+  expect((await ui.find({ key: 'glow-0' }))?.props.backgroundColor).toBe(strip)
   await out.clock.advance(50_500)
   expect(await ui.find({ type: 'Text', text: /⏳/ })).toBeUndefined()
   // Counting down is not Done: nobody may have been there to see it.
@@ -459,12 +461,102 @@ test('desktop band: the reminder counts down 60 seconds, hides, and comes back a
   // After 10 minutes (picked up by the 30-second heartbeat) it is back, with a fresh countdown.
   await out.clock.advance(10 * 60_000)
   expect(await ui.find({ key: 'desktop-done' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /⏳ 60s/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /⏳ Closes by itself in a minute/ })).toBeDefined()
   await ui.press({ key: 'desktop-done' })
   expect(JSON.parse(files.get(`${DIR}/desktop.json`)!).doneFor).toBe('Fri Oct  9 03:36:30 2026')
   await out.clock.advance(30 * 60_000)
   expect(await ui.find({ key: 'desktop-done' })).toBeUndefined()
   await ui.unmount()
+})
+
+const MESSAGE = {
+  component: 'UserMessage', props: { text: 'hello', origin: { kind: 'composer' }, isExpanded: true } as never,
+} as const
+
+test('frame off (the default): tint has no hook on messages, so the app draws each one itself; frame on sets the option', async ($, on) => {
+  const files = new Map<string, string>([[`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })]])
+  const out = desktopWorld(on, files)
+  const sets: { key: string; value: unknown }[] = []
+  on('config.set', ($, e) => {
+    sets.push({ key: e.key, value: e.value })
+    return { value: e.value } as never
+  })
+  await $.session.start(START)
+  // Nothing to bring in step: no repo has its frame on, and the option is off.
+  expect(sets).toEqual([])
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const message = await $.ui.mount({ plugin: 'tint', surface, ...MESSAGE })
+    expect(await message.find({ key: 'tint-frame' })).toBeUndefined()
+    await message.unmount()
+  }
+  // frame on: saved for the repo, and the option that brings the hook (the plugin reloads).
+  // The option is set once the answer has gone out (it reloads the plugin).
+  const answer = await $.command.run({ command: 'mod_tint', args: 'frame on', ...AT_PROMPT })
+  expect(answer.text).toContain('Border around your messages is on')
+  expect(sets).toEqual([])
+  expect(JSON.parse(files.get(`${DIR}/repos.json`)!)['lab-notes'].frame).toBe(true)
+  await out.clock.settle()
+  expect(sets).toEqual([{ key: 'tint.frame', value: true }])
+})
+
+test('frame option on while no repo has its frame on (turned off elsewhere): the option goes off at start', { options: { frame: true } }, async ($, on) => {
+  const files = new Map<string, string>([[`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E', frame: false } })]])
+  const out = desktopWorld(on, files)
+  const sets: { key: string; value: unknown }[] = []
+  on('config.set', ($, e) => {
+    sets.push({ key: e.key, value: e.value })
+    return { value: e.value } as never
+  })
+  await $.session.start(START)
+  await out.clock.settle()
+  expect(sets).toEqual([{ key: 'tint.frame', value: false }])
+})
+
+test('frame on in a repo and the option on: nothing to set, so no reload at start (no loop)', { options: { frame: true } }, async ($, on) => {
+  const files = new Map<string, string>([[`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E', frame: true } })]])
+  const out = desktopWorld(on, files)
+  const sets: string[] = []
+  on('config.set', ($, e) => {
+    sets.push(e.key)
+    return { value: e.value } as never
+  })
+  await $.session.start(START)
+  await out.clock.settle()
+  await out.clock.advance(5 * 30_000)
+  expect(sets).toEqual([])
+  // And the border is drawn: the option brought the hook, the repo asks for it.
+  const message = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...MESSAGE })
+  expect(await message.find({ key: 'tint-frame' })).toBeDefined()
+  await message.unmount()
+})
+
+test('frame option row named another way for this install: found among tint\'s rows; refused: said', async ($, on) => {
+  const files = new Map<string, string>([[`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })]])
+  const out = desktopWorld(on, files)
+  const sets: string[] = []
+  let isRefused = false
+  on('config.set', ($, e) => {
+    sets.push(e.key)
+    if (isRefused) return { deny: 'locked by policy' } as never
+    if (e.key === 'tint.frame') throw new Error('no row tint.frame')
+    return { value: e.value } as never
+  })
+  on('config.list', () => ({ value: [
+    { key: 'theme', label: 'Theme', kind: 'choice', value: 'dark', provider: { plugin: 'engine' }, isLocked: false },
+    { key: 'tint@claude-code-tint-mod.frame', label: 'Message frame', kind: 'boolean', value: false, provider: { plugin: 'tint' }, isLocked: false },
+  ] }) as never)
+  await $.session.start(START)
+  await $.command.run({ command: 'mod_tint', args: 'frame on', ...AT_PROMPT })
+  await out.clock.settle()
+  expect(sets).toEqual(['tint.frame', 'tint@claude-code-tint-mod.frame'])
+  expect(out.toasts.filter(text => text.includes('message frame'))).toEqual([])
+  // A refusal is said, after a change you asked for.
+  isRefused = true
+  sets.length = 0
+  await $.command.run({ command: 'mod_tint', args: 'frame off', ...AT_PROMPT })
+  await $.command.run({ command: 'mod_tint', args: 'frame on', ...AT_PROMPT })
+  await out.clock.settle()
+  expect(out.toasts).toContain('tint: the message frame could not be turned on (locked by policy).')
 })
 
 test('heartbeat cost: the app settings are read again only when they change, ps every 10 minutes, one clock each', async ($, on) => {

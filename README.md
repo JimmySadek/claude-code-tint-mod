@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.10.0-46AD5B" alt="Version 1.10.0"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.10.1-46AD5B" alt="Version 1.10.1"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://code.claude.com/docs/en/plugins/mods/overview"><img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757" alt="Claude Code 2.1.287 or later"></a>
 </p>
@@ -62,7 +62,7 @@ A band above the message box asks **"Color the whole app with your tint mod?"** 
 After each app start, the band shows **2 steps** to turn the colors on: press **⌥⌘I**, then right-click **tint** → **Run**. About 5 seconds. Then click **✅ Done**; until you do, the reminder comes back every 10 minutes. Running the snippet twice is safe: it stays on.
 
 <p align="center">
-  <img src="assets/images/desktop-reminder.png" alt="The tint band above the message box: 2 steps to activate your tint mod. 1, press Option Command I; a small tools window opens. 2, in that window, right-click tint, then click Run. A color strip counts down until the band closes by itself." width="100%">
+  <img src="assets/images/desktop-reminder.png" alt="The tint band above the message box: 2 steps to activate your tint mod. 1, press Option Command I; a small tools window opens. 2, in that window, right-click tint, then click Run. The band stands still and closes by itself after a minute." width="100%">
 </p>
 
 ---

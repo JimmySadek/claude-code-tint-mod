@@ -92,7 +92,7 @@ const saved = (world: World) => JSON.parse(world.files.get(`${DIR}/repos.json`)!
 const title = async ($: Parameters<TestBody>[0], current: string) =>
   (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: current } as never)).sessionTitle
 
-test('first window of a repo: Claude picks an emoji and exact color once, and it is saved', async ($, on) => {
+test('first window of a repo: Claude picks an emoji and exact color once, and it is saved', { options: { frame: true } }, async ($, on) => {
   // The reply as Haiku really sends it: fenced, with the "about" field first.
   const world = setup(on, 'repo-fit', '```json\n{"about": "Organizes repos", "emoji": "📐", "color": "#2563eb"}\n```', {
     'lab-notes': { icon: '🧪', color: '#7C3AED' },
@@ -422,7 +422,7 @@ test('Claude never picks 💬 or 🔧 for a repository', async ($, on) => {
 const GREEN = '{"color":"#259F3E","share":0.99,"saturation":0.77,"brightness":0.63}'
 const DULL = '{"color":"#6C8B9C","share":0.99,"saturation":0.31,"brightness":0.61}'
 
-test('measured: a vivid emoji gives the color, compiled once and kept per emoji', async ($, on) => {
+test('measured: a vivid emoji gives the color, compiled once and kept per emoji', { options: { frame: true } }, async ($, on) => {
   const world = setup(on, 'lab-notes', '{"emoji":"🧪","color":"#D97706"}', {}, { '🧪': GREEN })
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await world.clock.settle()

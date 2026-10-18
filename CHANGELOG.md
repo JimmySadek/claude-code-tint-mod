@@ -2,6 +2,12 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.13.1] - 2026-10-18
+
+### Fixed
+- **The folder a thread runs in picks its emoji and color, never its title's words.** 1.13.0 read the project from a title (`EPT · Match Room refresh`) and gave a thread in one-repo another project's emoji and color, though it was one-repo work. Now a thread under its own folder's heading has no emoji and takes a soft shade of that folder's color: `BAM UI · App design direction` and `EPT · Match Room refresh` under 🔮 one-repo are both one-repo's purple. Only a thread from another folder, nested under the session that started it (a work room), gets that folder's emoji in front and its soft color: `📚 BAM UI · Screen audit` when it runs in bam-ui. The desktop script draws that emoji; the title stays as it is. The sidebar gives a nested thread only its parent's heading, so its own folder is known once its window has been open while the script runs; until then a nested 💬 or 🔧 thread takes the color of the thread above it, and any other nested thread stays as the app draws it. The selected thread keeps its fill and the app's text. Tested on a mock page; not yet in the real app. Needs the new desktop script once: the band offers **Update**.
+- **Titles carry no project emoji again, as in 1.12.0.** Any emoji a repo in `repos.json` has or had goes from a title's start, so the emoji 1.13.0 added (`⚽ EPT · Match Room refresh`) go too: the hidden title note asks Claude once, on the session's next prompt. A thread never prompted again keeps it until it is renamed. Role marks (💬, 🔧) and an emoji no repo has stay. The `labels` lists and the `topic:` names of 1.13.0 are no longer read; an entry with no folder of its own (`"EPT": {"icon": "⚽"}`) still lets its emoji be found and dropped.
+
 ## [1.13.0] - 2026-10-18
 
 ### Changed

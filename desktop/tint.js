@@ -12,8 +12,9 @@
 //   - other open windows: a lighter tint and a thin ring in their own color;
 //   - the bottom area of each window (git bar, toolbar) keeps the app's own colors;
 //   - sidebar: stays neutral; repo names are colored, with the repo's emoji in front;
-//     a thread's title takes a soft shade of its project's color (see TOPICS), except the
-//     thread of the focused window, which gets its color as a fill instead of the app's grey;
+//     a thread's title takes a soft shade of its folder's color, and a thread from another
+//     folder than its heading's gets that folder's emoji in front (see FOLDERS); the thread of
+//     the focused window keeps the app's text and gets its color as a fill instead of the grey;
 //     other open threads get a thin bar, and hovering a thread tints it in its repo's color;
 //   - the loading dots and Claude's mark in each window take that window's color;
 //   - windows of one repo get shades by their number: 1 is the repo's own color, 2 to 10 each a
@@ -41,13 +42,14 @@
   if (window.__windowTint) window.__windowTint.off()
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
-  // TOPICS: REPOS (and the live labels) also hold each project under "topic:" and each name a
-  // thread title may use for it ("topic:bam ui"), keys no text in the app shows. A title
-  // "BAM UI · App design" is about that project, so its text takes a soft shade of the project's
-  // color; with no color saved ("") the emoji's is measured. A title about the folder heading's
-  // project takes the heading's color; a 💬 or 🔧 thread nested under another takes its parent's.
-  // A name the map does not have (or two projects share) leaves the title as the app draws it.
-  const TOPIC = 'topic:'
+  // FOLDERS: a sidebar thread's look comes from the folder it runs in, never from its title's
+  // words. A thread under its own folder's heading takes a soft shade of that repo's color and no
+  // emoji (the heading shows it once). A thread from another folder (a work room nested under the
+  // session that started it) takes that folder's soft color and its emoji in front, drawn by this
+  // script, not written in the title. The sidebar gives a nested thread only its parent's heading,
+  // so its own folder is known while its window is open (the window's label or header chip); until
+  // then a 💬 or 🔧 thread takes the color of the thread above it, and any other stays as the app
+  // draws it.
   // Live labels: while colors chosen after this script was saved wait to be saved into it, tint
   // draws a 1-pixel picture in the band above each window's prompt, labelled
   // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number], "at": ms, "band": "colors"}':
@@ -270,10 +272,6 @@
   }
 
   const titleOf = sid => rowOf(sid)?.querySelector('[data-row-label]')?.textContent.trim() ?? ''
-  // A name as titles and folders spell it differently: "AZKA Bot", "AZKA-BOT" and "azka_bot"
-  // are one (as in hooks/register.tsx).
-  const nameKey = text => text.normalize('NFKC').toLowerCase().replace(/[\s_-]+/gu, ' ').trim()
-  const MARKS_AT_START = /^(?:[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u20E3\uFE0F]|[0-9](?=\uFE0F?\u20E3)|\s)+/u
 
   // Which repo each sidebar thread is under. Each repo heading is a row keyed
   // "label:project-<folder path>", in the same section box (class group/section) as that repo's
@@ -288,16 +286,9 @@
   // so they give none: "🟪 title" in a folder without a repo stays uncolored instead of purple.
   const titleColor = emoji => (emoji && !SQUARES.has(emoji) && !ROLES.has(emoji) ? colorOf(emoji) : null)
   const plain = text => bare(text.replace(/[\p{Co}\p{Cf}]/gu, ''))   // icon glyphs and invisible marks out
-  // A thread title's project color (see TOPICS), or null: its words before " · ", after its marks.
-  const topicColor = (title, heading) => {
-    const words = title.replace(/[\p{Co}\p{Cf}]/gu, '').replace(MARKS_AT_START, '')
-    const cut = words.indexOf(' · ')
-    if (cut <= 0) return null
-    const name = nameKey(words.slice(0, cut))
-    if (heading && name === nameKey(heading) && known[heading]?.[0]) return known[heading][0]
-    const found = known[TOPIC + name]
-    return found ? found[0] || colorOf(found[1]) : null
-  }
+  // Two names of one look (a repo and a folder name it is known by, or two repos one emoji and
+  // color make one to the eye): a thread of one under the other's heading is no other folder's.
+  const isSameLook = (a, b) => a === b || (!!known[a] && !!known[b] && known[a][0] === known[b][0] && known[a][1] === known[b][1])
   const isRoleTitle = title => ROLES.has(title.match(/^\p{Extended_Pictographic}/u)?.[0])
   const headingOf = row => {
     const section = row.closest('[class*="group/section"]')
@@ -352,6 +343,9 @@
   const repoBySid = new Map()   // session id -> { repo, at }: the repo name found in its window, or null
   const MISS_MS = 10_000
   let retry = null
+  // Session id -> the folder its window named (see FOLDERS). A session never changes folder, so
+  // it is kept after the window closes, for as long as this script runs.
+  const folderOfSid = new Map()
   const findWindows = () => {
     const found = []
     for (const panel of document.querySelectorAll('.epitaxy-chat-panel')) {
@@ -361,6 +355,9 @@
       const m = TITLE.exec(titleOf(sid))
       const own = ownOf(panel)   // the window's own label: no sidebar needed, and no scan
       let repo = own && known[own[0]] ? own[0] : null
+      // The folder the window itself names (its label or header chip), never its sidebar heading,
+      // which for a nested thread is its parent's (see FOLDERS).
+      let folder = repo
       if (!repo) {
         // A saved repo name shown in the window (its header chip), looked for once per session.
         // A miss is kept for MISS_MS, so a window of an unknown repo is not scanned on every
@@ -373,8 +370,10 @@
           if (repo === null) retry ??= setTimeout(() => { retry = null; soon() }, MISS_MS + 50)
         }
         const fromSidebar = repoOfSid.get(sid)
-        repo = repoBySid.get(sid).repo ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
+        folder = repoBySid.get(sid).repo
+        repo = folder ?? (fromSidebar && known[fromSidebar] ? fromSidebar : null)
       }
+      if (folder) folderOfSid.set(sid, folder)
       const color = (repo && known[repo][0]) || titleColor(m?.[1])
       if (color) found.push({ panel, color, sid, repo, group: repo ?? color })
     }
@@ -593,7 +592,8 @@
       labels.push(el)
     }
 
-    // Sidebar threads: hover in the repo's color (its heading, else the title emoji).
+    // Sidebar threads: hover in the repo's color (the thread's own folder, else its heading, else
+    // the title emoji).
     const hovers = new Map()   // row -> its hover tint, for the soft title color below
     for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
       const label = row.querySelector('[data-row-label]')
@@ -605,7 +605,8 @@
         if (inside.length === 1) { heading = inside[0]; break }
         if (inside.length > 1) break
       }
-      const hoverColor = (heading && known[plain(heading.textContent || '')]?.[0]) ?? titleColor(TITLE.exec(title)?.[1])
+      const folder = folderOfSid.get(row.getAttribute('data-row-key').slice(5))
+      const hoverColor = (folder && known[folder]?.[0]) || ((heading && known[plain(heading.textContent || '')]?.[0]) ?? titleColor(TITLE.exec(title)?.[1]))
       if (hoverColor) {
         row.setAttribute('data-wt-row', '')
         const hover = wash({ color: hoverColor, n: 1 }, 0.16, 1)
@@ -647,10 +648,12 @@
       seen.add(pill)
     }
 
-    // Thread titles: soft text in their project's color (see TOPICS). The selected thread stays
-    // as it is: the focused window's (it has its fill), or one the app shows in a window this
-    // script gives no color. A thread nested under another (it has no pill of its own) with a
-    // 💬 or 🔧 title takes the color of the thread above it that has one.
+    // Thread titles: soft text in their folder's color, and another folder's emoji in front (see
+    // FOLDERS). The selected thread keeps the app's text: the focused window's (it has its fill),
+    // or one the app shows in a window this script gives no color; its emoji is still drawn. A
+    // thread nested under another (it has no pill of its own) is the only one that can be from
+    // another folder; with its folder unknown, a 💬 or 🔧 title takes the color of the thread
+    // above it. A title that starts with an emoji or role mark gets none in front.
     const focusSid = focus ? windows.get(focus)?.sid : null
     const tintedSids = new Set([...windows.values()].map(info => info.sid))
     const shownSids = new Set([...document.querySelectorAll('.epitaxy-chat-panel [data-session-id]')]
@@ -661,18 +664,34 @@
       const label = row.querySelector('[data-row-label]')
       if (!label) continue
       const sid = row.getAttribute('data-row-key').slice(5)
-      const title = label.textContent.trim()
+      const title = label.textContent.replace(/[\p{Co}\p{Cf}]/gu, '').trim()   // icon glyphs and invisible marks out
       const section = row.closest('[class*="group/section"]')
       const isNested = !row.querySelector('.group')
-      let color = topicColor(title, repoOfSid.get(sid))
-      if (isNested && isRoleTitle(title) && parent?.section === section && parent.color) color = parent.color
+      const heading = repoOfSid.get(sid) ?? null
+      const folder = (isNested ? folderOfSid.get(sid) : heading) ?? null
+      // A heading spelled unlike every saved name cannot be compared: no emoji is guessed.
+      const isOther = !!folder && !!heading && !!known[heading] && !isSameLook(folder, heading)
+      let color = (folder && known[folder]?.[0]) || null
+      if (isNested && !folder && isRoleTitle(title) && parent?.section === section && parent.color) color = parent.color
       if (!isNested) parent = { section, color }
-      if (!color || sid === focusSid || (shownSids.has(sid) && !tintedSids.has(sid))) continue
+      const parts = [label, ...leaves(label)].filter(el => !isLabel.has(el))   // a repo's name: colored as one above
+      // A title the app renamed in place may have been a repo's name at the last paint.
+      for (const el of parts) el.removeAttribute('data-wt-icon')
+      // A title that is a repo's name has that repo's emoji already (see above).
+      const isName = isLabel.has(label) || leaves(label).some(el => isLabel.has(el))
+      const mark = isOther && known[folder]?.[1] && !LEAD.test(title) && !isName ? known[folder][1] : null
+      if (mark) {
+        label.setAttribute('data-wt-icon', mark)
+        if (!touched.has(label)) touched.set(label, new Set())   // so a paint without it clears it
+        seen.add(label)
+      }
+      // The app's text: a color from the last paint goes here, as the emoji keeps the label in use.
+      if (!color || sid === focusSid || (shownSids.has(sid) && !tintedSids.has(sid))) {
+        for (const el of parts) if (touched.get(el)?.has('color')) unset(el, 'color')
+        continue
+      }
       const soft = softText(color, hovers.get(row))
-      for (const el of [label, ...leaves(label)]) {
-        if (isLabel.has(el)) continue   // a repo's name: colored as one above
-        // A title the app renamed in place may have been a repo's name at the last paint.
-        el.removeAttribute('data-wt-icon')
+      for (const el of parts) {
         if (touched.get(el)?.has('font-weight')) unset(el, 'font-weight')
         set(el, 'color', soft)
         seen.add(el)

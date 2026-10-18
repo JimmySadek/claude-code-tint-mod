@@ -5,10 +5,11 @@ const HOME = '/home/me'
 // What the engine stamps on a command the person types at the prompt.
 const AT_PROMPT = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 
-function setup(on: Parameters<TestBody>[1], surfaces: string[]): void {
+function setup(on: Parameters<TestBody>[1], surfaces: string[], repos?: Record<string, unknown>): void {
   mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
   const files = new Map<string, string>()
+  if (repos) files.set(`${HOME}/.claude/window-tint/repos.json`, JSON.stringify(repos))
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: '/work/lab-notes' }))
   on('session.repo', () => ({ value: { root: '/work/lab-notes', remote: null, internal: false, name: null } }))
@@ -43,8 +44,7 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   expect(second).toContain('mcp__ccd_session_mgmt__set_session_title')
   expect(second).toContain('"Lab · Login bug"')
   expect(second).toContain('"<Project> · <main topic>"')
-  expect(second).toContain("Emoji: none for this folder's own project (lab-notes;")
-  expect(second).toContain('never guess one')
+  expect(second).toContain('No repository emoji')
   expect(second).toContain('no window number')
   expect(second).not.toMatch(/1️⃣|🟦/u)
 
@@ -88,6 +88,26 @@ test('a title that starts with a repo emoji is cleaned once, whoever sent the pr
   expect(await send('Lab · Templates 0.4')).toBe('')
   // No title yet: nothing to clean.
   expect(((await $.classic.UserPromptSubmit({ prompt: 'hi', source: 'sdk' } as never)).additionalContext ?? [])).toEqual([])
+})
+
+test('a project emoji tint 1.13.0 put in a title goes again: the folder, not the words, picks the emoji', async ($, on) => {
+  // Entries 1.13.0 used for title topics: one with no folder of its own (EPT) and labels.
+  setup(on, ['desktop'], {
+    'lab-notes': { icon: '🧪', color: '#259F3E' },
+    'BAM-Knowledge': { icon: '📚', color: '#67A451', labels: ['BAM', 'BAM UI'] },
+    EPT: { icon: '⚽', color: '#1080CA', labels: ['EPT'] },
+  })
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  const send = async (title: string) =>
+    ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source: 'sdk' } as never)).additionalContext ?? []).join('\n')
+  for (const [title, mark, words] of [['⚽ EPT · Match Room refresh', '⚽', 'EPT · Match Room refresh'], ['📚 BAM UI · App design', '📚', 'BAM UI · App design']] as const) {
+    const clean = await send(title)
+    expect(clean).toContain(`Drop the leading "${mark}"`)
+    expect(clean).toContain(`(now "${words}")`)
+    expect(clean).toContain('add no other emoji')
+  }
+  // A title about another project gets no emoji added: the words never pick one.
+  for (let i = 0; i < 5; i++) expect(await send('EPT · Match Room refresh')).toBe('')
 })
 
 test('a title that starts with a role mark or an emoji of its own keeps it', async ($, on) => {

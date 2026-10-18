@@ -2,6 +2,13 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.13.0] - 2026-10-18
+
+### Changed
+- **A thread about another project starts with that project's emoji again.** 1.12.0 dropped every repo emoji from titles, but the sidebar groups threads by folder, so threads about different projects in one folder (BAM, Veheri, AZKA under one-repo) all looked alike. Now a title shows the emoji of the project it names only when that project is not the folder's own: `📚 BAM UI · App design direction` under the 🔮 one-repo heading, `One-repo · Colleagues` with none. The project is the title's words before ` · `, found by name in `repos.json`: a repo's folder name (`AZKA Bot` matches `AZKA-BOT`: case does not matter, and a space, `-` and `_` count as the same), its other folders, or a new optional `labels` list (`"labels": ["BAM", "BAM UI"]`). A project with no folder of its own is an entry with an emoji and labels but no color (`"EPT": {"icon": "⚽", "labels": ["EPT"]}`). A project tint does not know, or two projects of one name with different emoji, get no emoji: never a guess. Labels are set by hand in `repos.json`; no command adds them yet, and `/mod_tint reset` keeps them.
+- **Only the folder's own emoji is dropped from a title's start** (its emoji now or before, and a color square). Another project's emoji stays, or is replaced by the right one for the project the title names. Two of the folder's own emoji in a row both go. After 💬 or 🔧 any repo's emoji still goes (`💬 📚 BAM · Why` becomes `💬 BAM · Why`), and the old keycap form (`🧪1️⃣`) still loses emoji and number.
+- **The hidden title note** asks Claude once to start the title with the project's emoji when the project is another folder's, and with none when it is this folder's own. It names the emoji, and tells Claude never to guess one. Tested in the test suite; not yet in the real app. No new desktop script needed: a folder with a saved color still colors its heading and threads from `repos.json`, and only a folder with no saved color takes its color from a title's emoji.
+
 ## [1.12.0] - 2026-10-18
 
 ### Changed

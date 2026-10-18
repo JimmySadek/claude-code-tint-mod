@@ -179,7 +179,10 @@ type Window = { repo: string; n: number; seen: number; since?: number; ended?: b
 // previous: the look before the last emoji or color change, so "go back" is one step.
 type Look = { icon?: string; color?: string; manualColor?: boolean }
 // pastIcons: every emoji the repo had before (newest last), so titles still showing one lose it.
-type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look; pastIcons?: string[] }
+// labels: other names titles use for this project ("BAM UI", "Veheri"), set by hand, so a title
+// about it in another folder starts with its emoji. An entry with an emoji and labels but no
+// color is a project with no folder of its own (a topic): the desktop shows no heading for it.
+type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look; pastIcons?: string[]; labels?: string[] }
 
 // The tool Claude calls to apply what the person chose (see askClaude).
 const SET_TOOL = 'mcp__tint__set'
@@ -805,10 +808,15 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
     // A color or emoji just chosen: the desktop band carries it now, not at the next heartbeat.
     void refreshOffer($).catch(() => null)
   }
-  // Marks a title loses: a color square, and any emoji a repo has or had, this one or another
-  // (a work room named at birth with its project's emoji, or a title from before 1.12.0).
-  const every = Object.values(all).flatMap(each => [...(each.pastIcons ?? []), each.previous?.icon, each.icon])
-  repoMarks = new Set([...SQUARE_MARKS, ...every.filter((each): each is string => !!each && !ROLE_MARKS.has(each))].map(bare))
+  // A title loses this repo's emoji, now or before, and a color square at its start, and any
+  // repo's emoji right after a role mark. Each project's names find its emoji for a title about it.
+  const marksOf = (each: RepoChoice) =>
+    [...(each.pastIcons ?? []), each.previous?.icon, each.icon].filter((mark): mark is string => !!mark && !ROLE_MARKS.has(mark))
+  ownMarks = new Set([...SQUARE_MARKS, ...marksOf(choice)].map(bare))
+  repoMarks = new Set([...SQUARE_MARKS, ...Object.values(all).flatMap(marksOf)].map(bare))
+  topics = Object.entries(all).flatMap(([each, entry]) => entry.icon && isIcon(entry.icon)
+    ? [{ key: each, icon: entry.icon, names: [each, ...texts(entry.folders), ...texts(entry.labels)].map(nameKey) }]
+    : [])
   const wanted = {
     color: choice.color ?? autoColor(key),
     // Only one emoji: anything else saved by hand would break the titles.
@@ -839,58 +847,125 @@ async function look($: EngineInterface): Promise<{ key: string; tone: string; ki
   return { key, tone, kind, label }
 }
 
-// Titles: "Project · topic" ("Tint · Session names"), with no repository emoji. The desktop
-// sidebar groups threads under their project's heading, which shows the emoji once (see
-// desktop/tint.js), and the terminal strip and live label show it in each window.
+// Titles: "Project · topic" ("Tint · Session names"). The desktop sidebar groups threads under
+// their folder's heading, which shows that repo's emoji once (see desktop/tint.js), so a title
+// about the folder's own project has no emoji. A title about another project starts with that
+// project's emoji ("📚 BAM · Templates" under the one-repo heading), so threads about different
+// projects in one folder stay apart. The project is the title's words before " · ", found by
+// name in repos.json (a repo's folder, its other folders or its labels); a project tint does not
+// know gets no emoji, never a guess.
 // No window number: a title lasts, while a number is only the window's slot while it is
 // open (it stays in the desktop ring's shade, the terminal strip and the live label).
-// A title that starts with a role mark keeps it: the session that starts another one names
-// it at birth (💬 a side chat, 🔧 a helper), and tint cannot know which session started which.
-// Any other emoji no repository has is the title's own and stays too. A repository's emoji
-// (any repo's, now or before) and a color square tint left before 1.12.0 are dropped.
+// A title that starts with a role mark keeps it and gets no project emoji: the session that
+// starts another one names it at birth (💬 a side chat, 🔧 a helper), and tint cannot know which
+// session started which. Any emoji that is not this repo's is kept, unless the project it names
+// has another one. This repo's emoji (now or before) and a color square are dropped at the start,
+// any repo's emoji right after a role mark.
 // A mark: one emoji (with a skin tone, joined to more), or a flag.
-const MARK = /^(\p{Regional_Indicator}{2}|\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?)*) +/u
+const MARK = /^(\p{Regional_Indicator}{2}|\p{Extended_Pictographic}️?\p{Emoji_Modifier}?(?:‍\p{Extended_Pictographic}️?\p{Emoji_Modifier}?)*) +/u
 // The form before 1.9.0: emoji and window keycap ("🧪1️⃣ ", "🟧1️⃣ "), or from 10 on two plain
 // digits ("🧪12 "). Emoji and number are dropped. Two digits count only after a repository's
 // emoji, so "🔥20 recap" stays a title of its own.
-const OLD_KEYCAP = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*[0-9]\uFE0F?\u20E3\s+/u
-const OLD_DIGITS = /^(\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)[1-9][0-9]\s+/u
+const OLD_KEYCAP = /^\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*[0-9]️?⃣\s+/u
+const OLD_DIGITS = /^(\p{Extended_Pictographic}️?(?:‍\p{Extended_Pictographic}️?)*)[1-9][0-9]\s+/u
 const SQUARE_MARKS = new Set([...Object.values(SQUARES), '⬛'])
 
 // An emoji without its presentation selector, so "🖌" and "🖌️" count as one.
-const bare = (mark: string) => mark.replace(/\uFE0F/gu, '')
-// Marks titles lose, bare; set from repos.json by applyChoice.
+const bare = (mark: string) => mark.replace(/️/gu, '')
+// A name as titles and folders spell it differently: "AZKA Bot", "AZKA-BOT" and "azka_bot" are one.
+const nameKey = (text: string) => text.normalize('NFKC').toLowerCase().replace(/[\s_-]+/gu, ' ').trim()
+// The strings in a list read from repos.json, which may be edited by hand.
+const texts = (list: unknown): string[] => (Array.isArray(list) ? list.filter((each): each is string => typeof each === 'string') : [])
+// Set from repos.json by applyChoice, bare: this repo's marks (with the color squares), and
+// every repo's (any repo's emoji goes right after a role mark; the old two-digit form needs one).
+let ownMarks = new Set<string>([...SQUARE_MARKS].map(bare))
 let repoMarks = new Set<string>([...SQUARE_MARKS].map(bare))
+// Every project with an emoji, under each name a title may use for it.
+let topics: { key: string; icon: string; names: string[] }[] = []
 // own: this repo's mark now, in case repos.json was not read yet.
+const isOwnMark = (mark: string, own: string) => bare(mark) === bare(own) || ownMarks.has(bare(mark))
 const isRepoMark = (mark: string, own: string) => bare(mark) === bare(own) || repoMarks.has(bare(mark))
+const isSameMark = (a: string | null, b: string | null) => (a === null || b === null ? a === b : bare(a) === bare(b))
 
-// A title's own mark (💬, 🔧 or an emoji no repository has; null for none), what goes (a
-// repository's emoji or the old keycap form, at the start or right after the own mark, as in
-// "💬 🧪 Lab · Why"), and the words after both.
-function splitTitle(title: string, own: string): { mark: string | null; dropped: string | null; isOld: boolean; rest: string } {
-  let rest = title.trim()
-  let mark: string | null = null
-  const lead = rest.match(MARK)
-  if (lead && !isRepoMark(lead[1]!, own)) {
-    mark = lead[1]!
-    rest = rest.slice(lead[0].length).trim()
-  }
-  const digits = rest.match(OLD_DIGITS)
-  const old = rest.match(OLD_KEYCAP) ?? (digits && isRepoMark(digits[1]!, own) ? digits : null)
-  if (old) return { mark, dropped: old[0].trim(), isOld: true, rest: rest.slice(old[0].length).trim() }
-  const next = rest.match(MARK)
-  if (next && isRepoMark(next[1]!, own)) return { mark, dropped: next[1]!, isOld: false, rest: rest.slice(next[0].length).trim() }
-  return { mark, dropped: null, isOld: false, rest }
+// The project a title names (its words before " · "), or null when it names none. icon: the
+// project's emoji when it is not this repo (key) and tint knows exactly one for it, else null.
+type Topic = { name: string; icon: string | null; isHere: boolean }
+function topicOf(words: string, key: string, own: string): Topic | null {
+  const cut = words.indexOf(' · ')
+  if (cut <= 0) return null
+  const name = words.slice(0, cut).trim()
+  const found = topics.filter(each => each.names.includes(nameKey(name)))
+  // This repo, under its key or a folder name it is known by.
+  if (found.some(each => each.key === key || each.names.includes(nameKey(key)))) return { name, icon: null, isHere: true }
+  const icons = new Set(found.map(each => bare(each.icon)))
+  // None found, or two projects of that name with different emoji: no guess.
+  if (icons.size !== 1) return { name, icon: null, isHere: false }
+  const icon = found[0]!.icon
+  return bare(icon) === bare(own) ? { name, icon: null, isHere: true } : { name, icon, isHere: false }
 }
 
-// The terminal title: a repository's emoji dropped, a role mark kept. With the tint hidden the
-// title is left as it is.
+// A title cut in parts: the mark it keeps (a role mark, or an emoji that is not this repo's;
+// null for none), what goes (this repo's emoji or a color square at the start, the old keycap
+// form, or any repo's emoji right after the kept mark, as in "💬 🧪 Lab · Why"), and the words.
+type Split = { mark: string | null; dropped: string | null; isAfter: boolean; isOld: boolean; rest: string }
+function splitTitle(title: string, key: string, own: string): Split {
+  let rest = title.trim()
+  const oldAt = () => {
+    const digits = rest.match(OLD_DIGITS)
+    return rest.match(OLD_KEYCAP) ?? (digits && isRepoMark(digits[1]!, own) ? digits : null)
+  }
+  const old = oldAt()
+  if (old) return { mark: null, dropped: old[0].trim(), isAfter: false, isOld: true, rest: rest.slice(old[0].length).trim() }
+  let lead = rest.match(MARK)
+  let dropped: string | null = null
+  // This repo's emoji goes, unless it is also the emoji of the project the words name (a past
+  // emoji of this repo that another project has now).
+  if (lead && isOwnMark(lead[1]!, own)) {
+    const after = rest.slice(lead[0].length).trim()
+    const icon = topicOf(after, key, own)?.icon ?? null
+    if (!isSameMark(lead[1]!, icon)) {
+      dropped = lead[1]!
+      rest = after
+      lead = rest.match(MARK)
+      // A second one of this repo's emoji goes with it ("🔮 🪄 BAM UI · x").
+      if (lead && isOwnMark(lead[1]!, own)) {
+        dropped = `${dropped} ${lead[1]!}`
+        rest = rest.slice(lead[0].length).trim()
+        lead = rest.match(MARK)
+      }
+    }
+  }
+  if (!lead) return { mark: null, dropped, isAfter: false, isOld: false, rest }
+  const mark = lead[1]!
+  rest = rest.slice(lead[0].length).trim()
+  if (dropped !== null) return { mark, dropped, isAfter: false, isOld: false, rest }
+  const later = oldAt()
+  if (later) return { mark, dropped: later[0].trim(), isAfter: true, isOld: true, rest: rest.slice(later[0].length).trim() }
+  const next = rest.match(MARK)
+  if (next && isRepoMark(next[1]!, own)) return { mark, dropped: next[1]!, isAfter: true, isOld: false, rest: rest.slice(next[0].length).trim() }
+  return { mark, dropped: null, isAfter: false, isOld: false, rest }
+}
+
+// The emoji a title about these words should start with, or null for none: a role mark stays
+// alone; else the project's emoji when it is another repo's; else the title's kept mark, unless
+// it is a repo's emoji on this repo's own project.
+function leadFor(split: Split, topic: Topic | null, own: string): string | null {
+  if (split.mark !== null && ROLE_MARKS.has(split.mark)) return split.mark
+  if (topic?.icon) return isSameMark(split.mark, topic.icon) ? split.mark : topic.icon
+  if (split.mark !== null && topic?.isHere && isRepoMark(split.mark, own)) return null
+  return split.mark
+}
+
+// The terminal title: this repo's emoji dropped, another project's added, a role mark kept.
+// With the tint hidden the title is left as it is.
 async function titled($: EngineInterface, current: string | undefined): Promise<string | undefined> {
   const key = await read($, repo)
   if (key === null || (await read($, isHidden))) return undefined
-  const { mark: kept, rest } = splitTitle(current ?? '', await markOf($, key))
-  const words = (await read($, name)) ?? (rest || key)
-  return kept ? `${kept} ${words}` : words
+  const own = await markOf($, key)
+  const split = splitTitle(current ?? '', key, own)
+  const words = (await read($, name)) ?? (split.rest || key)
+  const lead = leadFor(split, topicOf(words, key, own), own)
+  return lead ? `${lead} ${words}` : words
 }
 
 // The title the last clean-up note was about, so a title Claude cannot rename is asked about once.
@@ -898,11 +973,11 @@ let filledFor: string | null = null
 
 // A hidden note asks Claude to keep the title right, in two cases:
 // - every TITLE_EVERY of your own prompts, whether it still names the main topic;
-// - once, on any prompt, when the title starts with a repository's emoji (or the old keycap
-//   form). A work room is driven by its parent's messages, so it would never reach your own
-//   prompt count.
+// - once, on any prompt, when the title's emoji is not right for its project: this repo's emoji
+//   (or the old keycap form) is still there, or another project's emoji is missing or wrong.
+//   A work room is driven by its parent's messages, so it would never reach your own prompt count.
 // Renaming stays Claude's call; a name you typed yourself is protected by the app, which asks
-// you before replacing it. Hidden or shown, the title carries no repository emoji.
+// you before replacing it. Hidden or shown, the note is the same.
 async function titleNudge($: EngineInterface, current: string | undefined, isOwn: boolean): Promise<string | undefined> {
   const count = (await read($, prompts)) + (isOwn ? 1 : 0)
   if (isOwn) await update($, prompts, () => count)
@@ -912,31 +987,47 @@ async function titleNudge($: EngineInterface, current: string | undefined, isOwn
   const key = await read($, repo)
   if (key === null) return undefined
   const ownMark = await markOf($, key)
-  const { mark: kept, dropped, isOld, rest } = splitTitle(current ?? '', ownMark)
+  const split = splitTitle(current ?? '', key, ownMark)
+  const { mark: kept, dropped, isAfter, isOld, rest } = split
+  const own = await read($, name)
+  const topic = topicOf(own ?? rest, key, ownMark)
+  const lead = leadFor(split, topic, ownMark)
   const hasRepoMark = dropped !== null
+  const isLeadWrong = !isSameMark(kept, lead)
   const isDue = isOwn && count >= TITLE_FIRST && (count - TITLE_FIRST) % TITLE_EVERY === 0
-  const isStale = hasRepoMark && current !== filledFor
+  const isStale = !!current?.trim() && (hasRepoMark || isLeadWrong) && current !== filledFor
   if (!isDue && !isStale) return undefined
   if (isStale) filledFor = current ?? null
-  const mark = kept !== null ? `${kept} ` : ''
-  const own = await read($, name)
+  const mark = lead !== null ? `${lead} ` : ''
   // With a window name the words are the name, so the note never says to keep the old ones.
   const now = current ? `"${current}"` : 'not set yet'
-  const shape = 'A title is "Project · topic": the project this session is about in a word or two (a product, client or repository), " · ", then its main thread in 2 to 4 words, a noun phrase. No repository emoji (the sidebar shows it once, on the project heading), no status words (approved, read-only, done, redo), no dates, no window number.'
-  const keepLine = kept !== null
-    ? `Keep its leading "${kept}" as it is (the session that started this one may have chosen it: 💬 a side chat, 🔧 a helper)${hasRepoMark || own ? '.' : ` and change only the words after it (now "${rest}").`}`
+  const shape = `A title is "Project · topic": the project this session is about in a word or two (a product, client or repository), " · ", then its main thread in 2 to 4 words, a noun phrase. No status words (approved, read-only, done, redo), no dates, no window number. Emoji: none for this folder's own project (${key}; the sidebar shows its emoji once, on the folder heading) and none after 💬 or 🔧; a title about another project starts with that project's emoji, only one this note names (never guess one).`
+  const why = kept !== null && ROLE_MARKS.has(kept)
+    ? 'the session that started this one chose it: 💬 a side chat, 🔧 a helper'
+    : topic?.icon
+    ? `the emoji of "${topic.name}", a project other than this folder's`
+    : 'the session that started this one may have chosen it'
+  const keepLine = kept !== null && !isLeadWrong
+    ? `Keep its leading "${kept}" as it is (${why})${hasRepoMark || own ? '.' : ` and change only the words after it (now "${rest}").`}`
     : null
   const dropLine = hasRepoMark
-    ? `Drop ${isOld ? 'the emoji and old window number' : `the ${kept !== null ? '' : 'leading '}"${dropped}"`} ${kept !== null ? `after "${kept}"` : 'at its start'}${own ? '' : ` and keep the words (now "${rest}")`}; add no other emoji.`
+    ? `Drop ${isOld ? 'the emoji and old window number' : `the ${isAfter ? '' : 'leading '}"${dropped}"`} ${isAfter ? `after "${kept}"` : 'at its start'}${own ? '' : ` and keep the words (now "${rest}")`}${isLeadWrong ? '.' : '; add no other emoji.'}`
     : null
-  const markLine = [keepLine, dropLine].filter(Boolean).join(' ') || 'Do not add an emoji or a number.'
+  const leadLine = !isLeadWrong
+    ? null
+    : lead !== null
+    ? `"${topic?.name}" is a project other than this folder's, so start the title with its emoji "${lead}"${kept !== null ? ` in place of "${kept}"` : ''}.`
+    : `"${topic?.name}" is this folder's own project, so drop the leading "${kept}": the sidebar heading shows the folder's emoji.`
+  const markLine = [keepLine, dropLine, leadLine].filter(Boolean).join(' ') || 'Do not add an emoji or a number.'
   const target = own
     ? `This window is named "${own}" (/mod_tint name), so the title should be exactly "${mark}${own}".`
     : `The title names the session's main thread, not a side task: "${mark}<Project> · <main topic>".`
   const when = own
     ? `If the title is not exactly "${mark}${own}",`
-    : isStale
+    : hasRepoMark
     ? 'The title still starts with that emoji, so'
+    : isLeadWrong
+    ? 'The title\'s emoji does not fit its project yet, so'
     : 'If the title is not in that shape yet, or the main topic has clearly changed,'
   return [
     `[window-tint title check, from the window-tint mod] This window's title is ${now}.`,
@@ -1599,11 +1690,13 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     return { text: `Border around your messages is ${wanted} for ${key}. ${later}${note}` }
   }
   if (verb === 'reset') {
-    // Everything goes but the list of past emoji, so titles still showing one lose it.
+    // Everything goes but the list of past emoji, so titles still showing one lose it, and the
+    // labels set by hand, so titles about this project elsewhere keep its emoji.
     const mine = (await choicesToChange($))[key] ?? {}
     const past = [...(mine.pastIcons ?? []), ...(mine.icon ? [mine.icon] : [])].slice(-PAST_ICONS)
     await saveChoice($, key, null)
-    if (past.length > 0) await saveChoice($, key, { pastIcons: past })
+    const kept = { ...(past.length > 0 ? { pastIcons: past } : {}), ...(mine.labels !== undefined ? { labels: mine.labels } : {}) }
+    if (Object.keys(kept).length > 0) await saveChoice($, key, kept)
     await update($, name, () => null)
     await update($, isHidden, () => false)
     await applyChoice($, key)

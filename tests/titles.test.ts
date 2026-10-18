@@ -43,7 +43,8 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   expect(second).toContain('mcp__ccd_session_mgmt__set_session_title')
   expect(second).toContain('"Lab · Login bug"')
   expect(second).toContain('"<Project> · <main topic>"')
-  expect(second).toContain('No repository emoji')
+  expect(second).toContain("Emoji: none for this folder's own project (lab-notes;")
+  expect(second).toContain('never guess one')
   expect(second).toContain('no window number')
   expect(second).not.toMatch(/1️⃣|🟦/u)
 

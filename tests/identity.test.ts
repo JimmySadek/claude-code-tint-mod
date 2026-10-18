@@ -21,7 +21,7 @@ type World = {
 // out, no command can run (not macOS), so the color is Claude's own.
 function setup(
   on: Parameters<TestBody>[1], repoName: string, reply: string | null, saved: object = {},
-  measures?: Record<string, string>, surfaces: string[] = ['desktop'],
+  measures?: Record<string, string>, surfaces: string[] = ['desktop'], remote: string | null = null,
 ): World {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
@@ -34,7 +34,7 @@ function setup(
   let footer: string | undefined
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: root }))
-  on('session.repo', () => ({ value: { root, remote: null, internal: false, name: null } }))
+  on('session.repo', () => ({ value: { root, remote, internal: false, name: null } }))
   on('session.surfaces', () => ({ value: surfaces as never }))
   on('fs.read', ($, e) => {
     const text = files.get(e.path)
@@ -345,15 +345,18 @@ test('titles drop a repository\'s emoji and the old number; role marks and other
   await $.command.run({ command: 'mod_tint', args: 'icon 🧫' } as never)
   expect(await title($, '🧪 Lab · Mod ideas')).toBe('Lab · Mod ideas')
   expect(await title($, '🔬 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  // Another repository's emoji is a repository's too (a work room named with it at birth): dropped.
+  // Another repository's emoji says the title is about that project (a work room named with it
+  // at birth): it stays, even when tint does not know the project's name.
   const now = saved(world)
   world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...now, 'BAM-Knowledge': { icon: '📚', color: '#22C55E' } }))
   await world.clock.advance(31_000)
-  expect(await title($, '📚 BAM · Templates')).toBe('BAM · Templates')
+  expect(await title($, '📚 BAM · Templates')).toBe('📚 BAM · Templates')
   // With or without its presentation selector, an emoji is the same.
   world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...now, tint: { icon: '🖌️', color: '#EC4899' } }))
   await world.clock.advance(31_000)
-  expect(await title($, '🖌 Tint · Thread titles')).toBe('Tint · Thread titles')
+  // The title names that project, so its emoji is right, with or without the selector.
+  expect(await title($, '🖌 Tint · Thread titles')).toBe('🖌 Tint · Thread titles')
+  expect(await title($, 'Tint · Thread titles')).toBe('🖌️ Tint · Thread titles')
   expect(await title($, '💬 BAM · Why 0.4?')).toBe('💬 BAM · Why 0.4?')
   world.files.set(`${DIR}/repos.json`, JSON.stringify(now))
   await world.clock.advance(30_000)
@@ -401,6 +404,141 @@ test('the rename note drops the repo emoji and the old number, and adds none', a
   expect(named).toContain('Drop the leading "🔬" at its start; add no other emoji.')
   expect(named).not.toContain('keep the words')
   expect(named).toContain('exactly "Backend"')
+})
+
+// Projects as repos.json knows them: folders with their look, labels titles use for them, and
+// one project with no folder (an emoji and its name, no color).
+const PROJECTS = {
+  'one-repo': { icon: '🔮', color: '#B465BB', pastIcons: ['🪄'] },
+  'BAM-Knowledge': { icon: '📚', color: '#67A451', folders: ['BAM_Knowledge'], labels: ['BAM', 'BAM UI'] },
+  'veheri-web': { icon: '🌐', color: '#62B7D5', folders: ['site-migration-AI-opt'], labels: ['Veheri'] },
+  'AZKA-BOT': { icon: '🤖', color: '#337E8C' },
+  CM_Pricing_Calc: { icon: '🧮', color: '#965E1F', labels: ['CM pricing'] },
+  'snaprun-brand': { icon: '📸', color: '#F2A622', labels: ['Snappster'] },
+  EPT: { icon: '⚽', labels: ['EPT'] },
+}
+
+test('topic emoji: a title about another project starts with its emoji, this folder\'s own project gets none', async ($, on) => {
+  const world = setup(on, 'one-repo', null, PROJECTS)
+  await $.session.start({ cwd: '/work/one-repo', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  // The approved look, under the 🔮 one-repo heading: from a title without emoji, and kept once right.
+  const rows: [string, string][] = [
+    ['BAM UI · App design direction', '📚 BAM UI · App design direction'],
+    ['🔮 One-repo · Colleagues and work rooms', 'One-repo · Colleagues and work rooms'],
+    ['Veheri · Daily indexing batch', '🌐 Veheri · Daily indexing batch'],
+    ['AZKA Bot · Bot setup', '🤖 AZKA Bot · Bot setup'],
+    ['EPT · Match Room refresh', '⚽ EPT · Match Room refresh'],
+    ['CM pricing · Calculator brainstorm', '🧮 CM pricing · Calculator brainstorm'],
+    ['💬 CM pricing · Number source for Kuba', '💬 CM pricing · Number source for Kuba'],
+    ['One-repo · Codex reliability fixes', 'One-repo · Codex reliability fixes'],
+    ['🔧 One-repo · Team upkeep and foundations', '🔧 One-repo · Team upkeep and foundations'],
+    ['Snappster · Runner UX', '📸 Snappster · Runner UX'],
+  ]
+  for (const [now, wanted] of rows) {
+    expect(await title($, now)).toBe(wanted)
+    expect(await title($, wanted)).toBe(wanted)
+  }
+  // A role mark gets no project emoji, and any repo's emoji right after one goes.
+  expect(await title($, '💬 🧮 CM pricing · Number source for Kuba')).toBe('💬 CM pricing · Number source for Kuba')
+  expect(await title($, '💬 📚 BAM · Why 0.4?')).toBe('💬 BAM · Why 0.4?')
+  expect(await title($, '🔧 🔮 One-repo · Team upkeep and foundations')).toBe('🔧 One-repo · Team upkeep and foundations')
+  // This folder's emoji goes and the project's comes; another project's emoji is replaced.
+  expect(await title($, '🔮 BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+  expect(await title($, '🌐 BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+  // Another project's emoji on this folder's own project goes.
+  expect(await title($, '📚 One-repo · Colleagues')).toBe('One-repo · Colleagues')
+  // A past emoji of this folder goes too.
+  expect(await title($, '🪄 One-repo · Colleagues')).toBe('One-repo · Colleagues')
+  expect(await title($, '🔮 🪄 BAM UI · App design')).toBe('📚 BAM UI · App design')
+  expect(await title($, '🪄 Veheri · Daily indexing batch')).toBe('🌐 Veheri · Daily indexing batch')
+  // The old keycap form loses emoji and number; a project of another folder then gets its emoji.
+  expect(await title($, '🔮1️⃣ BAM UI · App design')).toBe('📚 BAM UI · App design')
+  expect(await title($, '🧪3️⃣ Mod ideas')).toBe('Mod ideas')
+  expect(await title($, '🔮12 One-repo · Colleagues')).toBe('One-repo · Colleagues')
+  // A color square (before an emoji was picked) goes.
+  expect(await title($, '🟪 Snappster · Runner UX')).toBe('📸 Snappster · Runner UX')
+  // A project tint does not know gets no emoji, never a guess. An emoji that is not this
+  // folder's stays: the title's own, or a repo's that may say what the project is.
+  expect(await title($, 'Jarvis · Voice setup')).toBe('Jarvis · Voice setup')
+  expect(await title($, '🎯 Jarvis · Voice setup')).toBe('🎯 Jarvis · Voice setup')
+  expect(await title($, '🔮 Jarvis · Voice setup')).toBe('Jarvis · Voice setup')
+  expect(await title($, '🌐 Website · Copy')).toBe('🌐 Website · Copy')
+  expect(await title($, 'Mod ideas')).toBe('Mod ideas')
+  // Two projects of one name with different emoji: no guess.
+  world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...PROJECTS, 'bam-brand': { icon: '🏷️', color: '#C2185B', labels: ['BAM'] } }))
+  await world.clock.advance(31_000)
+  expect(await title($, 'BAM · Templates')).toBe('BAM · Templates')
+  expect(await title($, 'BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+  // A window name is the words: its project word picks the emoji the same way.
+  await $.command.run({ command: 'mod_tint', args: 'name Veheri · Batch' } as never)
+  expect(await title($, '🔮 One-repo · Colleagues')).toBe('🌐 Veheri · Batch')
+})
+
+test('topic emoji: in its own folder a project gets no emoji, by folder key or another folder name', async ($, on) => {
+  const world = setup(on, 'AZKA-BOT', null, PROJECTS)
+  await $.session.start({ cwd: '/work/AZKA-BOT', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  expect(await title($, '🤖 AZKA Bot · Plan and knowledge base')).toBe('AZKA Bot · Plan and knowledge base')
+  expect(await title($, 'AZKA Bot · Plan and knowledge base')).toBe('AZKA Bot · Plan and knowledge base')
+  expect(await title($, 'BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+})
+
+test('topic emoji: a folder known by another name counts as that project\'s own', async ($, on) => {
+  const world = setup(on, 'site-migration-AI-opt', null, PROJECTS)
+  await $.session.start({ cwd: '/work/site-migration-AI-opt', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  expect(await title($, 'Veheri · Guide indexing recheck')).toBe('Veheri · Guide indexing recheck')
+  expect(await title($, '🌐 Veheri · Guide indexing recheck')).toBe('Veheri · Guide indexing recheck')
+  expect(await title($, 'One-repo · Colleagues')).toBe('🔮 One-repo · Colleagues')
+})
+
+test('topic emoji: a clone named by its remote is that project\'s own folder, and reset keeps its labels', async ($, on) => {
+  const world = setup(on, 'site-migration-AI-opt', null, PROJECTS, undefined, ['desktop'], 'git@github.com:me/veheri-web.git')
+  await $.session.start({ cwd: '/work/site-migration-AI-opt', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  expect(await title($, '🌐 Veheri · Guide indexing recheck')).toBe('Veheri · Guide indexing recheck')
+  expect(await title($, 'Veheri · Guide indexing recheck')).toBe('Veheri · Guide indexing recheck')
+  expect(await title($, 'BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+  await $.command.run({ command: 'mod_tint', args: 'reset' } as never)
+  expect(saved(world)['veheri-web'].labels).toEqual(['Veheri'])
+  expect(saved(world)['veheri-web'].pastIcons).toEqual(['🌐'])
+})
+
+test('topic emoji: the note asks once for the project\'s emoji, or for none on this folder\'s project', async ($, on) => {
+  const world = setup(on, 'one-repo', null, PROJECTS)
+  await $.session.start({ cwd: '/work/one-repo', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  const noteFor = async (current: string, source: string | undefined = 'sdk') =>
+    ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: current, source } as never)).additionalContext ?? []).join('\n')
+
+  const add = await noteFor('BAM UI · App design direction')
+  expect(add).toContain('"BAM UI" is a project other than this folder\'s, so start the title with its emoji "📚".')
+  expect(add).toContain('The title\'s emoji does not fit its project yet, so call')
+  expect(add).toContain('"📚 <Project> · <main topic>"')
+  expect(add).toContain("Emoji: none for this folder's own project (one-repo;")
+  // Asked once; a right title and this folder's plain title are not asked about.
+  expect(await noteFor('BAM UI · App design direction')).toBe('')
+  expect(await noteFor('📚 BAM UI · App design direction')).toBe('')
+  expect(await noteFor('One-repo · Codex reliability fixes')).toBe('')
+  expect(await noteFor('💬 CM pricing · Number source for Kuba')).toBe('')
+  expect(await noteFor('Jarvis · Voice setup')).toBe('')
+  // This folder's emoji goes, the project's comes.
+  const swap = await noteFor('🔮 Veheri · Daily indexing batch')
+  expect(swap).toContain('Drop the leading "🔮" at its start and keep the words (now "Veheri · Daily indexing batch").')
+  expect(swap).toContain('start the title with its emoji "🌐".')
+  expect(swap).not.toContain('add no other emoji')
+  expect(await noteFor('🌐 BAM UI · App design')).toContain('start the title with its emoji "📚" in place of "🌐".')
+  expect(await noteFor('📚 One-repo · Colleagues')).toContain('"One-repo" is this folder\'s own project, so drop the leading "📚"')
+  expect(await noteFor('🔮 One-repo · Colleagues')).toContain('Drop the leading "🔮" at its start and keep the words (now "One-repo · Colleagues"); add no other emoji.')
+  const side = await noteFor('💬 🧮 CM pricing · Number source for Kuba')
+  expect(side).toContain('Keep its leading "💬" as it is (the session that started this one chose it')
+  expect(side).toContain('Drop the "🧮" after "💬" and keep the words (now "CM pricing · Number source for Kuba"); add no other emoji.')
+  // The scheduled check on a right title keeps the project's emoji.
+  await noteFor('📚 BAM UI · App design direction', 'user')
+  const due = await noteFor('📚 BAM UI · App design direction', 'user')
+  expect(due).toContain('Keep its leading "📚" as it is (the emoji of "BAM UI", a project other than this folder\'s)')
+  expect(due).toContain('"📚 <Project> · <main topic>"')
 })
 
 test('an unreadable repos.json is never written over; saves go to a temporary file, then rename', async ($, on) => {

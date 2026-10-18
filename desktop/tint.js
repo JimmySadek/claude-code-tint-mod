@@ -12,9 +12,9 @@
 //   - other open windows: a lighter tint and a thin ring in their own color;
 //   - the bottom area of each window (git bar, toolbar) keeps the app's own colors;
 //   - sidebar: stays neutral; repo names are colored, with the repo's emoji in front;
-//     thread titles stay as they are (their emoji says what each session is);
-//     the thread of the focused window gets its color instead of the app's grey, other open
-//     threads a thin bar, and hovering a thread tints it in its repo's color;
+//     a thread's title takes a soft shade of its project's color (see TOPICS), except the
+//     thread of the focused window, which gets its color as a fill instead of the app's grey;
+//     other open threads get a thin bar, and hovering a thread tints it in its repo's color;
 //   - the loading dots and Claude's mark in each window take that window's color;
 //   - windows of one repo get shades by their number: 1 is the repo's own color, 2 to 10 each a
 //     step away in lightness, hue and chroma (see SHADES), the 11th wraps to the first;
@@ -41,6 +41,13 @@
   if (window.__windowTint) window.__windowTint.off()
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
+  // TOPICS: REPOS (and the live labels) also hold each project under "topic:" and each name a
+  // thread title may use for it ("topic:bam ui"), keys no text in the app shows. A title
+  // "BAM UI · App design" is about that project, so its text takes a soft shade of the project's
+  // color; with no color saved ("") the emoji's is measured. A title about the folder heading's
+  // project takes the heading's color; a 💬 or 🔧 thread nested under another takes its parent's.
+  // A name the map does not have (or two projects share) leaves the title as the app draws it.
+  const TOPIC = 'topic:'
   // Live labels: while colors chosen after this script was saved wait to be saved into it, tint
   // draws a 1-pixel picture in the band above each window's prompt, labelled
   // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number], "at": ms, "band": "colors"}':
@@ -218,6 +225,32 @@
     return hex([f(0), f(8), f(4)])
   }
   const colorOf = emoji => (emoji ? emojiColor(emoji) ?? madeColor(emoji) : null)
+  // A thread title's soft shade of a color: less chroma, at a lightness that reads on the
+  // sidebar in this mode. It is moved further from the background until its contrast is at
+  // least 4.5 (WCAG AA for text) against each of the app's sidebar and hover backgrounds.
+  const SOFT_L = { light: 0.5, dark: 0.8 }, SOFT_C = 0.7, SOFT_MOST_C = 0.13, SOFT_CONTRAST = 4.5
+  // The app's sidebar surfaces, then the darkest (light mode) or lightest (dark mode) hover tint
+  // a saved repo color gives, with room to spare.
+  const BACKS = { light: ['#FFFFFF', '#FAF9F5', '#F0EEE6', '#DDDDDD'], dark: ['#1F1E1D', '#262624', '#30302E', '#44423F'] }
+  const luminance = color => { const [r, g, b] = rgb(color).map(toLinear); return 0.2126 * r + 0.7152 * g + 0.0722 * b }
+  const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05) }
+  // hover: the row's own hover tint, checked too (a very pale or bright repo color gives one
+  // outside BACKS).
+  const softCache = new Map()
+  const softText = (color, hover) => {
+    const mode = isDark() ? 'dark' : 'light'
+    const key = `${mode} ${color} ${hover ?? ''}`
+    if (softCache.has(key)) return softCache.get(key)
+    const backs = hover ? [...BACKS[mode], hover] : BACKS[mode]
+    const [, C, H] = oklch(color)
+    let L = SOFT_L[mode], out = color
+    for (let i = 0; i < 25; i++, L += mode === 'dark' ? 0.01 : -0.01) {
+      out = fromOklch(L, Math.min(C * SOFT_C, SOFT_MOST_C), H)
+      if (backs.every(back => contrast(out, back) >= SOFT_CONTRAST)) break
+    }
+    softCache.set(key, out)
+    return out
+  }
 
   // Finding things.
   const bare = text => text.replace(new RegExp(`^(?:${EMOJI}|\\s)+`, 'u'), '').trim()
@@ -237,6 +270,10 @@
   }
 
   const titleOf = sid => rowOf(sid)?.querySelector('[data-row-label]')?.textContent.trim() ?? ''
+  // A name as titles and folders spell it differently: "AZKA Bot", "AZKA-BOT" and "azka_bot"
+  // are one (as in hooks/register.tsx).
+  const nameKey = text => text.normalize('NFKC').toLowerCase().replace(/[\s_-]+/gu, ' ').trim()
+  const MARKS_AT_START = /^(?:[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u20E3\uFE0F]|[0-9](?=\uFE0F?\u20E3)|\s)+/u
 
   // Which repo each sidebar thread is under. Each repo heading is a row keyed
   // "label:project-<folder path>", in the same section box (class group/section) as that repo's
@@ -251,6 +288,17 @@
   // so they give none: "🟪 title" in a folder without a repo stays uncolored instead of purple.
   const titleColor = emoji => (emoji && !SQUARES.has(emoji) && !ROLES.has(emoji) ? colorOf(emoji) : null)
   const plain = text => bare(text.replace(/[\p{Co}\p{Cf}]/gu, ''))   // icon glyphs and invisible marks out
+  // A thread title's project color (see TOPICS), or null: its words before " · ", after its marks.
+  const topicColor = (title, heading) => {
+    const words = title.replace(/[\p{Co}\p{Cf}]/gu, '').replace(MARKS_AT_START, '')
+    const cut = words.indexOf(' · ')
+    if (cut <= 0) return null
+    const name = nameKey(words.slice(0, cut))
+    if (heading && name === nameKey(heading) && known[heading]?.[0]) return known[heading][0]
+    const found = known[TOPIC + name]
+    return found ? found[0] || colorOf(found[1]) : null
+  }
+  const isRoleTitle = title => ROLES.has(title.match(/^\p{Extended_Pictographic}/u)?.[0])
   const headingOf = row => {
     const section = row.closest('[class*="group/section"]')
     let name = null
@@ -546,6 +594,7 @@
     }
 
     // Sidebar threads: hover in the repo's color (its heading, else the title emoji).
+    const hovers = new Map()   // row -> its hover tint, for the soft title color below
     for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
       const label = row.querySelector('[data-row-label]')
       if (!label) continue
@@ -559,7 +608,9 @@
       const hoverColor = (heading && known[plain(heading.textContent || '')]?.[0]) ?? titleColor(TITLE.exec(title)?.[1])
       if (hoverColor) {
         row.setAttribute('data-wt-row', '')
-        set(row, '--wt-hover', wash({ color: hoverColor, n: 1 }, 0.16, 1))
+        const hover = wash({ color: hoverColor, n: 1 }, 0.16, 1)
+        set(row, '--wt-hover', hover)
+        hovers.set(row, hover)
         seen.add(row)
       }
     }
@@ -594,6 +645,38 @@
       }
       set(pill, 'box-shadow', `inset ${isFocused ? 4 : 2}px 0 0 ${accent(info)}`)
       seen.add(pill)
+    }
+
+    // Thread titles: soft text in their project's color (see TOPICS). The selected thread stays
+    // as it is: the focused window's (it has its fill), or one the app shows in a window this
+    // script gives no color. A thread nested under another (it has no pill of its own) with a
+    // 💬 or 🔧 title takes the color of the thread above it that has one.
+    const focusSid = focus ? windows.get(focus)?.sid : null
+    const tintedSids = new Set([...windows.values()].map(info => info.sid))
+    const shownSids = new Set([...document.querySelectorAll('.epitaxy-chat-panel [data-session-id]')]
+      .filter(el => visible(el.closest('.epitaxy-chat-panel'))).map(el => el.getAttribute('data-session-id')))
+    const isLabel = new Set(labels)
+    let parent = null
+    for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
+      const label = row.querySelector('[data-row-label]')
+      if (!label) continue
+      const sid = row.getAttribute('data-row-key').slice(5)
+      const title = label.textContent.trim()
+      const section = row.closest('[class*="group/section"]')
+      const isNested = !row.querySelector('.group')
+      let color = topicColor(title, repoOfSid.get(sid))
+      if (isNested && isRoleTitle(title) && parent?.section === section && parent.color) color = parent.color
+      if (!isNested) parent = { section, color }
+      if (!color || sid === focusSid || (shownSids.has(sid) && !tintedSids.has(sid))) continue
+      const soft = softText(color, hovers.get(row))
+      for (const el of [label, ...leaves(label)]) {
+        if (isLabel.has(el)) continue   // a repo's name: colored as one above
+        // A title the app renamed in place may have been a repo's name at the last paint.
+        el.removeAttribute('data-wt-icon')
+        if (touched.get(el)?.has('font-weight')) unset(el, 'font-weight')
+        set(el, 'color', soft)
+        seen.add(el)
+      }
     }
 
     // A band that only offers to save colors already shown here: hidden (see BANDS).
@@ -737,6 +820,7 @@
     },
     get paints() { return paints },   // repaints since this run, for checking it stays quiet
     shade: windowShade,               // a window's shade (hex, number), for checks
+    soft: softText,                   // a thread title's soft shade of a color, for checks
     get windows() { return lastWindows },   // each window at the last paint: repo, number, shade, focus
   }
   safePaint()

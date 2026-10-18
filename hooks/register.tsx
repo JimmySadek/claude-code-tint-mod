@@ -64,6 +64,8 @@ const SNIPPET_BACKUP = 'Preferences.backup'
 const SNIPPET_STATE = 'desktop.json'
 const SNIPPET_RUNNER = 'install-desktop.command'   // opened in Terminal by /mod_tint desktop go
 const REPOS_PART = /\/\*REPOS\*\/[\s\S]*?\/\*REPOS\*\//
+// The key a project's title name has among the desktop colors (see desktopRepos).
+const TOPIC_KEY = 'topic:'
 const PATTERNS = ['triangles', 'circles', 'stripes', 'diamonds', 'waves', 'hexes', 'blocks', 'chevrons'] as const
 type Pattern = (typeof PATTERNS)[number]
 // The terminal has no pictures, so each pattern has a glyph row instead.
@@ -814,9 +816,7 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
     [...(each.pastIcons ?? []), each.previous?.icon, each.icon].filter((mark): mark is string => !!mark && !ROLE_MARKS.has(mark))
   ownMarks = new Set([...SQUARE_MARKS, ...marksOf(choice)].map(bare))
   repoMarks = new Set([...SQUARE_MARKS, ...Object.values(all).flatMap(marksOf)].map(bare))
-  topics = Object.entries(all).flatMap(([each, entry]) => entry.icon && isIcon(entry.icon)
-    ? [{ key: each, icon: entry.icon, names: [each, ...texts(entry.folders), ...texts(entry.labels)].map(nameKey) }]
-    : [])
+  topics = topicsIn(all)
   const wanted = {
     color: choice.color ?? autoColor(key),
     // Only one emoji: anything else saved by hand would break the titles.
@@ -880,8 +880,13 @@ const texts = (list: unknown): string[] => (Array.isArray(list) ? list.filter((e
 // every repo's (any repo's emoji goes right after a role mark; the old two-digit form needs one).
 let ownMarks = new Set<string>([...SQUARE_MARKS].map(bare))
 let repoMarks = new Set<string>([...SQUARE_MARKS].map(bare))
-// Every project with an emoji, under each name a title may use for it.
-let topics: { key: string; icon: string; names: string[] }[] = []
+// Every project with an emoji, under each name a title may use for it: its key, its other
+// folders and its labels.
+type Project = { key: string; icon: string; names: string[] }
+const topicsIn = (all: Record<string, RepoChoice>): Project[] => Object.entries(all).flatMap(([each, entry]) => entry.icon && isIcon(entry.icon)
+  ? [{ key: each, icon: entry.icon, names: [each, ...texts(entry.folders), ...texts(entry.labels)].map(nameKey) }]
+  : [])
+let topics: Project[] = []
 // own: this repo's mark now, in case repos.json was not read yet.
 const isOwnMark = (mark: string, own: string) => bare(mark) === bare(own) || ownMarks.has(bare(mark))
 const isRepoMark = (mark: string, own: string) => bare(mark) === bare(own) || repoMarks.has(bare(mark))
@@ -1296,6 +1301,23 @@ function desktopRepos(choices: Record<string, RepoChoice>): Record<string, [stri
     const mark = (choice.icon && isIcon(choice.icon) ? choice.icon : SQUARES[nearestName(choice.color)]) ?? ''
     for (const shown of [key, ...(choice.folders ?? [])]) out[shown] = [hex.toUpperCase(), mark]
   }
+  // Each project under each name a title may use for it, so a sidebar thread about it takes its
+  // color: "topic:<name>" (nameKey), a key no text in the app shows, so it never colors a name
+  // on the page. No color: the script measures the emoji. A name two projects share with
+  // different emoji or colors is left out (no guess).
+  const lookOf = (each: Project): [string, string] => {
+    const hex = fill(choices[each.key]?.color ?? '')
+    return [/^#[0-9a-f]{6}$/i.test(hex) ? hex.toUpperCase() : '', each.icon]
+  }
+  const byName = new Map<string, [string, string] | null>()
+  for (const each of topicsIn(choices)) {
+    const look = lookOf(each)
+    for (const shown of each.names) {
+      const had = byName.get(shown)
+      byName.set(shown, had === undefined ? look : had !== null && had[0] === look[0] && bare(had[1]) === bare(look[1]) ? had : null)
+    }
+  }
+  for (const [shown, look] of byName) if (look !== null) out[`${TOPIC_KEY}${shown}`] = look
   return out
 }
 

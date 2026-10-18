@@ -14,6 +14,11 @@ test('desktop: /mod_tint css copies the tint with every repo\'s colors', async (
       'claude-mods': { icon: '🧩', color: '#7C3AED' },
       'old-repo': { color: 'teal' },
       'no-color': { icon: '📦' },
+      'BAM-Knowledge': { icon: '📚', color: '#67A451', labels: ['BAM', 'BAM UI', 'BAM common'] },
+      'bam-brand': { icon: '🏷️', color: '#C2185B', labels: ['BAM', 42] },
+      EPT: { icon: '⚽', labels: ['EPT'] },
+      'bam-ui-kit': { icon: '📚', color: '#123456', labels: ['BAM UI kit', 'BAM shared', 'BAM common'] },
+      'bam-docs': { icon: '📚', color: '#123456', labels: ['BAM shared'] },
     })],
   ])
   on('session.id', () => ({ value: 'me' }))
@@ -58,6 +63,24 @@ test('desktop: /mod_tint css copies the tint with every repo\'s colors', async (
   expect(repos['claude-mods-wt']).toEqual(['#7C3AED', '🧩'])
   expect(repos['old-repo'][0]).toBe('#14B8A6')
   expect(repos['no-color']).toBeUndefined()
+  // Each project under each name a title may use for it, for the color of a thread about it:
+  // keys no text in the app shows. A project with no color is measured by the script from its
+  // emoji; a name two projects share with different emoji is left out (no guess).
+  expect(repos['topic:claude mods']).toEqual(['#7C3AED', '🧩'])
+  expect(repos['topic:claude mods wt']).toEqual(['#7C3AED', '🧩'])
+  expect(repos['topic:bam ui']).toEqual(['#67A451', '📚'])
+  expect(repos['topic:bam knowledge']).toEqual(['#67A451', '📚'])
+  expect(repos['topic:bam brand']).toEqual(['#C2185B', '🏷️'])
+  expect(repos['topic:ept']).toEqual(['', '⚽'])
+  expect(repos['topic:no color']).toEqual(['', '📦'])
+  expect(repos['topic:bam']).toBeUndefined()
+  // Same emoji, other color: no guess either; same emoji and color: one project to the eye.
+  expect(repos['topic:bam ui kit']).toEqual(['#123456', '📚'])
+  expect(repos['topic:bam shared']).toEqual(['#123456', '📚'])
+  expect(repos['topic:bam common']).toBeUndefined()
+  expect(repos['topic:42']).toBeUndefined()
+  expect(repos['topic:old repo']).toBeUndefined()
+  expect(repos['EPT']).toBeUndefined()
 
   // The help is Markdown tables (a command's answer is drawn as Markdown).
   const help = await $.command.run({ command: 'mod_tint', args: 'help', ...AT_PROMPT })
@@ -146,7 +169,7 @@ test('desktop: /mod_tint desktop explains first; go runs the install in Terminal
 
   // go: the script with repo colors, and a .command file Terminal opens and runs.
   const go = await $.command.run({ command: 'mod_tint', args: 'desktop go', ...AT_PROMPT })
-  expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('/*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/')
+  expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('/*REPOS*/{"lab-notes":["#259F3E","🧪"],"topic:lab notes":["#259F3E","🧪"]}/*REPOS*/')
   const runner = files.get(`${DIR}/install-desktop.command`)!
   expect(runner).toStartWith('#!/bin/sh\n')
   expect(runner).toContain('/usr/bin/python3 \'')
@@ -270,7 +293,7 @@ const carried = async (ui: { find: (q: { type: string }) => Promise<{ props: Rec
 }
 
 test('desktop band: colors chosen after the snippet was saved ride in the band; Later waits for the next color', async ($, on) => {
-  const saved = 'const REPOS = /*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/ // tint'
+  const saved = 'const REPOS = /*REPOS*/{"lab-notes":["#259F3E","🧪"],"topic:lab notes":["#259F3E","🧪"]}/*REPOS*/ // tint'
   const files = new Map<string, string>([
     [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
     [`${APP}/Preferences`, prefsWith(saved)],

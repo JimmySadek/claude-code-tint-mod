@@ -16,7 +16,7 @@
 |---|---|
 | 🪟 **Window titles** | `Shop · Login bug`: the project and the main topic. The folder's emoji shows once, on its sidebar heading; a thread about another project starts with that project's emoji (`📚 BAM · Templates`) |
 | 💻 **Terminal** | a strip in the repo's color above the prompt, with the window's number |
-| 🖥️ **Desktop app** | the whole app in color: a ring around the window you're in (each window of a repo its own shade, up to 10), a soft tint, colored repo names in the sidebar |
+| 🖥️ **Desktop app** | the whole app in color: a ring around the window you're in (each window of a repo its own shade, up to 10), a soft tint, colored repo names in the sidebar, each thread's title in a soft shade of its project's color |
 
 ---
 

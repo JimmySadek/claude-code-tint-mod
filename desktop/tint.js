@@ -42,23 +42,29 @@
   if (window.__windowTint) window.__windowTint.off()
 
   const REPOS = /*REPOS*/{}/*REPOS*/   // name as the app shows it (repo or folder) -> [color, emoji]
+  const ROOMS = /*ROOMS*/{}/*ROOMS*/   // the app's session id -> the repo it runs in (see FOLDERS)
   // FOLDERS: a sidebar thread's look comes from the folder it runs in, never from its title's
   // words. A thread under its own folder's heading takes a soft shade of that repo's color and no
   // emoji (the heading shows it once). A thread from another folder (a work room nested under the
   // session that started it) takes that folder's soft color and its emoji in front, drawn by this
   // script, not written in the title. The sidebar gives a nested thread only its parent's heading,
-  // so its own folder is known while its window is open (the window's label or header chip); until
-  // then a 💬 or 🔧 thread takes the color of the thread above it, and any other stays as the app
-  // draws it.
+  // so the mod notes each desktop session's folder by the app's own session id (ROOMS, saved with
+  // this script, and the live labels' "rooms" for sessions started since). A session the mod has
+  // not noted (no mod in it, or the app stopped naming the id) has its folder known while its
+  // window is open (the window's label or header chip); until then a 💬 or 🔧 thread takes the
+  // color of the thread above it, and any other stays as the app draws it.
   // Live labels: while colors chosen after this script was saved wait to be saved into it, tint
   // draws a 1-pixel picture in the band above each window's prompt, labelled
-  // 'tint-colors {"repos": {name: [color, emoji]}, "window": [repo, number], "at": ms, "band": "colors"}':
-  // every repo's chosen look, so such a color shows on the next repaint, and the window's own repo
+  // 'tint-colors {"repos": {name: [color, emoji]}, "rooms": {id: repo}, "fresh": {id: repo}, "window": [repo, number], "at": ms, "band": "colors"}':
+  // every repo's chosen look, so such a color shows on the next repaint, the folders of sessions
+  // this script was saved without (see FOLDERS), and the window's own repo
   // (its number is the mod's, so the windows' own agreement in NUMBERS is used instead: a window
   // without a label could take the same one). "at" is when that window's copy of the mod last read
   // a change in the colors, so where labels disagree (another window not caught up yet) the newest
   // wins. "band": "colors" says the band only offers to save those colors: they already show here,
-  // so the band is hidden (see BANDS). (tint 1.7.0 labels held the repos map alone; up to 1.9.1 the
+  // so the band is hidden (see BANDS), unless a work room from another folder is among the rooms
+  // to save and not put off with Later ("fresh": {id: repo}): then it stays, so its emoji and color
+  // are saved for after the next app start. (tint 1.7.0 labels held the repos map alone; up to 1.9.1 the
   // picture sat in the footer, where Claude desktop 2.42304 keeps only text and buttons.)
   // The page draws each mod's tree inside an open shadow root on a [data-plugin-drawn] box, so the
   // labels are looked for there too. Nothing is remembered: with no label (nothing left to save, or
@@ -106,7 +112,10 @@
     const text = found.map(({ el }) => el.getAttribute('alt') || el.getAttribute('aria-label')).sort().join('\n')
     const labels = found.map(each => each.label).sort((a, b) => (Number(a.at) || 0) - (Number(b.at) || 0))   // oldest first
     const quiet = new Set(found.filter(each => each.label.band === 'colors').map(each => bandOwner(each.el)).filter(Boolean))
-    return { text, repos: Object.assign({}, ...labels.map(label => label.repos ?? label)), quiet, isBetween: isBetween() }
+    const part = (label, key) => (label[key] && typeof label[key] === 'object' ? label[key] : {})
+    const rooms = Object.assign({}, ...labels.map(label => part(label, 'rooms')))
+    const fresh = Object.assign({}, ...labels.map(label => part(label, 'fresh')))
+    return { text, repos: Object.assign({}, ...labels.map(label => label.repos ?? label)), rooms, fresh, quiet, isBetween: isBetween() }
   }
   const EMOJI = '\\p{Extended_Pictographic}\\uFE0F?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?)*'
   const LEAD = new RegExp(`^${EMOJI}`, 'u')                                               // a leading emoji
@@ -310,6 +319,10 @@
     return bySid
   }
   let known = REPOS, repoOfSid = new Map()
+  // Every session's folder this script knows: ROOMS, and those the labels named since (a session
+  // never changes folder, so one is kept after its label goes).
+  const rooms = { ...ROOMS }
+  const roomOf = sid => (typeof rooms[sid] === 'string' && known[rooms[sid]] ? rooms[sid] : null)
 
   // NUMBERS: windows of one repo take numbers (1, 2, 3...), so each gets its own shade. The
   // windows agree among themselves, the way the mod does: every app window
@@ -358,6 +371,8 @@
       // The folder the window itself names (its label or header chip), never its sidebar heading,
       // which for a nested thread is its parent's (see FOLDERS).
       let folder = repo
+      // Else the folder the mod noted for this session (see FOLDERS): no scan needed.
+      if (!repo && roomOf(sid)) folder = repo = roomOf(sid)
       if (!repo) {
         // A saved repo name shown in the window (its header chip), looked for once per session.
         // A miss is kept for MISS_MS, so a window of an unknown repo is not scanned on every
@@ -507,6 +522,7 @@
     const reading = readLabels()
     const said = !reading.isBetween && reading.text === confirmed.text ? (confirmed = reading) : confirmed
     known = { ...REPOS, ...said.repos }
+    Object.assign(rooms, said.rooms)
     repoOfSid = headings()
     const windows = findWindows()
     const open = [...windows.keys()]
@@ -605,7 +621,8 @@
         if (inside.length === 1) { heading = inside[0]; break }
         if (inside.length > 1) break
       }
-      const folder = folderOfSid.get(row.getAttribute('data-row-key').slice(5))
+      const rowSid = row.getAttribute('data-row-key').slice(5)
+      const folder = roomOf(rowSid) ?? folderOfSid.get(rowSid)
       const hoverColor = (folder && known[folder]?.[0]) || ((heading && known[plain(heading.textContent || '')]?.[0]) ?? titleColor(TITLE.exec(title)?.[1]))
       if (hoverColor) {
         row.setAttribute('data-wt-row', '')
@@ -660,6 +677,8 @@
       .filter(el => visible(el.closest('.epitaxy-chat-panel'))).map(el => el.getAttribute('data-session-id')))
     const isLabel = new Set(labels)
     let parent = null
+    // A work room from another folder that the saved script has no folder for: its colors band stays.
+    let isNewOther = false
     for (const row of document.querySelectorAll('[data-row-key^="code:"]')) {
       const label = row.querySelector('[data-row-label]')
       if (!label) continue
@@ -668,9 +687,10 @@
       const section = row.closest('[class*="group/section"]')
       const isNested = !row.querySelector('.group')
       const heading = repoOfSid.get(sid) ?? null
-      const folder = (isNested ? folderOfSid.get(sid) : heading) ?? null
+      const folder = (isNested ? roomOf(sid) ?? folderOfSid.get(sid) : heading) ?? null
       // A heading spelled unlike every saved name cannot be compared: no emoji is guessed.
       const isOther = !!folder && !!heading && !!known[heading] && !isSameLook(folder, heading)
+      if (isOther && said.fresh[sid] === folder && ROOMS[sid] !== folder) isNewOther = true
       let color = (folder && known[folder]?.[0]) || null
       if (isNested && !folder && isRoleTitle(title) && parent?.section === section && parent.color) color = parent.color
       if (!isNested) parent = { section, color }
@@ -698,8 +718,9 @@
       }
     }
 
-    // A band that only offers to save colors already shown here: hidden (see BANDS).
-    const quiet = said.quiet
+    // A band that only offers to save colors already shown here: hidden (see BANDS), unless a work
+    // room from another folder waits to be saved (see LIVE).
+    const quiet = isNewOther ? new Set() : said.quiet
     for (const el of document.querySelectorAll('[data-wt-band]')) if (!quiet.has(el)) el.removeAttribute('data-wt-band')
     for (const owner of quiet) {
       if (owner.matches('.epitaxy-chat-panel')) owner.setAttribute('data-wt-band', '')

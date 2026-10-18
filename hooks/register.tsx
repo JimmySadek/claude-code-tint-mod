@@ -64,6 +64,7 @@ const SNIPPET_BACKUP = 'Preferences.backup'
 const SNIPPET_STATE = 'desktop.json'
 const SNIPPET_RUNNER = 'install-desktop.command'   // opened in Terminal by /mod_tint desktop go
 const REPOS_PART = /\/\*REPOS\*\/[\s\S]*?\/\*REPOS\*\//
+const ROOMS_PART = /\/\*ROOMS\*\/[\s\S]*?\/\*ROOMS\*\//
 const PATTERNS = ['triangles', 'circles', 'stripes', 'diamonds', 'waves', 'hexes', 'blocks', 'chevrons'] as const
 type Pattern = (typeof PATTERNS)[number]
 // The terminal has no pictures, so each pattern has a glyph row instead.
@@ -160,9 +161,10 @@ const newVersion = atom({ plugin: 'tint', key: 'newVersion' } as const, null)
 // Set by the band's Turn on auto-update: the band then shows where to click.
 const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
 // For desktop/tint.js, the label of a 1-pixel picture in the band above the desktop prompt
-// (LIVE_TAG): `{"repos": {name: [color, emoji]}, "window": [repo, number]}`, every repo's chosen
-// look and this window's own repo and number. The saved snippet reads it on each repaint, so a
-// color chosen after the snippet was saved shows at once.
+// (LIVE_TAG): `{"repos": {name: [color, emoji]}, "rooms": {id: repo}, "window": [repo, number]}`,
+// every repo's chosen look, the desktop sessions the saved snippet has no folder for yet (see
+// rooms.json) and this window's own repo and number. The saved snippet reads it on each repaint,
+// so a color chosen or a work room started after the snippet was saved shows at once.
 // Claude desktop 2.42304 keeps only text and buttons in the footer (SessionMode), so the picture
 // rides in the band, whenever one is drawn while isColorsDue: repos.json differs from the colors
 // saved in the snippet. The page draws a mod's tree in an open shadow root, where the script looks
@@ -480,11 +482,17 @@ async function tintSourceOf($: EngineInterface): Promise<string | null> {
   return tintSource
 }
 
-// desktop/tint.js with every repo's color filled in (kept between its /*REPOS*/ marks).
+// desktop/tint.js with every repo's color filled in (kept between its /*REPOS*/ marks) and the
+// folder of every desktop session the mod has seen (between its /*ROOMS*/ marks, see rooms.json).
 async function tintScript($: EngineInterface): Promise<string | null> {
   const source = await tintSourceOf($)
   if (source === null) return null
-  return source.replace(REPOS_PART, `/*REPOS*/${JSON.stringify(desktopRepos(await readChoices($)))}/*REPOS*/`)
+  const repos = desktopRepos(await readChoices($))
+  const rooms = desktopRooms(await readRooms($), repos)
+  // A replacer function: a `$` in a name is kept as it is.
+  return source
+    .replace(REPOS_PART, () => `/*REPOS*/${JSON.stringify(repos)}/*REPOS*/`)
+    .replace(ROOMS_PART, () => `/*ROOMS*/${JSON.stringify(rooms)}/*ROOMS*/`)
 }
 
 // The "tint" snippet saved in the desktop app's DevTools, or null when there is none. The
@@ -513,9 +521,10 @@ async function savedSnippet($: EngineInterface): Promise<string | null> {
 // declined the install, put off one script version, or turned the colors on after one app start.
 // snoozedFor/snoozedAt: the reminder counted down unanswered for that app start, at that clock time.
 // colorsLater/colorsLaterFor: put off saving one set of repo colors (colorsMark) for one app start.
+// roomsLater: the rooms waiting to be saved when that was put off, so they keep no band up.
 type DesktopState = {
   isInstallDeclined?: boolean; updateLater?: string; doneFor?: string; snoozedFor?: string; snoozedAt?: number
-  colorsLater?: string; colorsLaterFor?: string
+  colorsLater?: string; colorsLaterFor?: string; roomsLater?: string[]
 }
 
 async function desktopState($: EngineInterface): Promise<DesktopState> {
@@ -544,20 +553,32 @@ async function appStarted($: EngineInterface): Promise<string | null> {
   return appStart.value
 }
 
-// A mark for the mod's script, repo colors left out: they have an offer of their own (colors).
-const scriptMark = (script: string) => hash(script.replace(REPOS_PART, ''), 7).toString(16)
+// A mark for the mod's script, repo colors and rooms left out: they have an offer of their own (colors).
+const scriptMark = (script: string) => hash(script.replace(REPOS_PART, '').replace(ROOMS_PART, ''), 7).toString(16)
 
-// The repo colors saved in a snippet (between its /*REPOS*/ marks); {} when it has none.
-function savedColors(script: string): Record<string, [string, string]> {
-  const part = REPOS_PART.exec(script)?.[0]
+// What a snippet saved between one pair of marks; {} when it has none.
+function savedPart<T>(script: string, part: RegExp, mark: string): Record<string, T> {
+  const found = part.exec(script)?.[0]
   try {
-    return part ? JSON.parse(part.slice('/*REPOS*/'.length, -'/*REPOS*/'.length)) : {}
+    const value: unknown = found ? JSON.parse(found.slice(mark.length, -mark.length)) : {}
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {}
   } catch {
     return {}
   }
 }
-// A mark for one set of repo colors, so Later waits for the next color change.
-const colorsMark = (repos: Record<string, [string, string]>) => hash(JSON.stringify(repos), 7).toString(16)
+// The repo colors saved in a snippet (between its /*REPOS*/ marks).
+const savedColors = (script: string) => savedPart<[string, string]>(script, REPOS_PART, '/*REPOS*/')
+// The session folders saved in a snippet (between its /*ROOMS*/ marks).
+const savedRooms = (script: string) => savedPart<string>(script, ROOMS_PART, '/*ROOMS*/')
+// The rooms the saved snippet lacks or has with another folder: the ones still to save.
+function newRooms(rooms: Record<string, string>, saved: string | null): Record<string, string> {
+  const kept = saved === null ? {} : savedRooms(saved)
+  return Object.fromEntries(Object.entries(rooms).filter(([host, shown]) => kept[host] !== shown))
+}
+// A mark for one set of repo colors and rooms, so Later waits for the next change. With no rooms
+// it is the mark of the colors alone, as before 1.13.1.
+const colorsMark = (repos: Record<string, [string, string]>, rooms: Record<string, string>) =>
+  hash(JSON.stringify(repos) + (Object.keys(rooms).length > 0 ? JSON.stringify(rooms) : ''), 7).toString(16)
 
 // In the desktop app, what the band above the prompt offers: the install (no snippet yet),
 // the update (the saved snippet is an older script), once per app start how to turn the
@@ -575,10 +596,14 @@ async function refreshOffer($: EngineInterface): Promise<void> {
   // A repo whose color or emoji the saved snippet does not have yet (a repo it never had counts).
   const repos = desktopRepos(await readChoices($))
   const kept = saved === null ? {} : savedColors(saved)
-  const isStale = Object.entries(repos).some(([shown, [hex, mark]]) => kept[shown]?.[0] !== hex || kept[shown]?.[1] !== mark)
+  // Or a desktop session the saved snippet has no folder for (see rooms.json). The running script
+  // hides the band unless one of them is a work room from another folder (see desktop/tint.js).
+  const rooms = desktopRooms(await readRooms($), repos)
+  const isColorStale = Object.entries(repos).some(([shown, [hex, mark]]) => kept[shown]?.[0] !== hex || kept[shown]?.[1] !== mark)
+  const isStale = isColorStale || Object.keys(newRooms(rooms, saved)).length > 0
   const isDue = script !== null && saved !== null && isStale
   const thisStart = isDue ? await appStarted($) : null
-  const isPutOff = state.colorsLater === colorsMark(repos) && state.colorsLaterFor === (thisStart ?? undefined)
+  const isPutOff = state.colorsLater === colorsMark(repos, rooms) && state.colorsLaterFor === (thisStart ?? undefined)
   let offer: 'install' | 'update' | 'remind' | 'colors' | null = null
   if (script === null) offer = null
   else if (saved === null) offer = state.isInstallDeclined ? null : 'install'
@@ -587,7 +612,10 @@ async function refreshOffer($: EngineInterface): Promise<void> {
     const started = await appStarted($)
     const isSnoozed = started !== null && state.snoozedFor === started && state.snoozedAt !== undefined &&
       (await $.clock.now()) - state.snoozedAt < REMIND_AGAIN_MS
-    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : isDue && !isPutOff ? 'colors' : null
+    // Rooms alone bring the offer only once you said the script runs this app start (Done): it
+    // hides the band unless a work room from another folder waits, and only it can tell.
+    const isShown = isColorStale || (started !== null && state.doneFor === started)
+    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : isDue && !isPutOff && isShown ? 'colors' : null
   }
   // Written only when they change: each write draws the band again.
   if ((await read($, isColorsDue)) !== isDue) await update($, isColorsDue, () => isDue)
@@ -799,7 +827,14 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const repos = desktopRepos(all)
   const seen = JSON.stringify(repos)
   if (seen !== liveRead.repos) liveRead = { repos: seen, at: await $.clock.now() }
-  const tag = LIVE_TAG + JSON.stringify({ repos, window: [key, (await read($, number)) ?? 1], at: liveRead.at })
+  // Only the rooms the saved snippet lacks (it has the others, see rooms.json), the newest
+  // LABEL_ROOMS; "fresh": those not put off with Later this app start, the only ones that may keep
+  // the band up (see desktop/tint.js).
+  const rooms = Object.fromEntries(Object.entries(newRooms(desktopRooms(await readRooms($), repos), await savedSnippet($))).slice(-LABEL_ROOMS))
+  const state = Object.keys(rooms).length > 0 ? await desktopState($) : {}
+  const putOff = new Set(state.colorsLaterFor !== undefined && state.colorsLaterFor === (await appStarted($)) ? state.roomsLater ?? [] : [])
+  const fresh = Object.fromEntries(Object.entries(rooms).filter(([host]) => !putOff.has(host)))
+  const tag = LIVE_TAG + JSON.stringify({ repos, ...(Object.keys(rooms).length > 0 ? { rooms, fresh } : {}), window: [key, (await read($, number)) ?? 1], at: liveRead.at })
   if ((await read($, liveColors)) !== tag) {
     await update($, liveColors, () => tag)
     // A color or emoji just chosen: the desktop band carries it now, not at the next heartbeat.
@@ -1208,6 +1243,62 @@ function desktopRepos(choices: Record<string, RepoChoice>): Record<string, [stri
   return out
 }
 
+// FOLDERS (see desktop/tint.js): the folder each desktop session runs in, by the app's own id for
+// it (the sidebar keys its row by that id, which the mod's session id is not), so the sidebar
+// shows a work room from another folder with that folder's emoji and color, its window open or
+// not. The app names the id in one variable, the only one read here. Outside the app (a
+// terminal) or should the app stop setting it, no room is noted, and the script learns a room's
+// folder from its window as before. rooms.json is shared by every window: `{id: repo}`, the
+// newest ROOMS_MAX kept. Each window notes its own room at start and again at each heartbeat,
+// so a room lost to two windows writing at the same moment comes back.
+const ROOMS_FILE = 'rooms.json'
+const ROOMS_MAX = 400
+// The most rooms one live label carries (the newest), so its text stays small.
+const LABEL_ROOMS = 100
+let hostId: string | null | undefined
+async function hostOf($: EngineInterface): Promise<string | null> {
+  if (hostId !== undefined) return hostId
+  const value = (await $.env.get('CLAUDE_CODE_HOST_SESSION_ID').catch(() => undefined)) ?? ''
+  hostId = /^[\w-]{1,128}$/.test(value) ? value : null
+  return hostId
+}
+
+async function readRooms($: EngineInterface): Promise<Record<string, string>> {
+  const all = await readJson<unknown>($, `${await folder($)}/${ROOMS_FILE}`)
+  if (all === null || typeof all !== 'object' || Array.isArray(all)) return {}
+  return Object.fromEntries(Object.entries(all).filter((entry): entry is [string, string] => typeof entry[1] === 'string'))
+}
+
+// Only a desktop session notes its room: a `claude -p` it runs (no surface) may share its
+// variables, and would note its own folder under this session's id.
+async function noteRoom($: EngineInterface, key: string): Promise<void> {
+  if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return
+  const host = await hostOf($)
+  if (host === null) return
+  const path = `${await folder($)}/${ROOMS_FILE}`
+  // A file that is there but cannot be read is left as it is: a write would lose every other room.
+  const text = await $.fs.read(path).catch(() => null)
+  if (text !== null) {
+    try {
+      const value: unknown = JSON.parse(text)
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) return
+    } catch {
+      return
+    }
+  }
+  const rooms = await readRooms($)
+  if (rooms[host] === key) return
+  delete rooms[host]   // to the end: the newest are kept
+  rooms[host] = key
+  const dir = await folder($)
+  await $.process.run(['mkdir', '-p', dir]).catch(() => null)
+  await writeWhole($, `${dir}/${ROOMS_FILE}`, JSON.stringify(Object.fromEntries(Object.entries(rooms).slice(-ROOMS_MAX))))
+}
+
+// The rooms the desktop script can draw: those whose repo has a saved color.
+const desktopRooms = (rooms: Record<string, string>, repos: Record<string, [string, string]>) =>
+  Object.fromEntries(Object.entries(rooms).filter(([, shown]) => repos[shown] !== undefined))
+
 // Whether this copy said once that repos.json cannot be read.
 let hasWarned = false
 
@@ -1460,6 +1551,8 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     const key = await repoKey($)
     const now = await $.clock.now()
     void pruneWindows($, now).catch(() => null)
+    // Before the band's first look, so a new room is counted at once.
+    await noteRoom($, key).catch(() => null)
     // The auto-update steps open only on a tap, never left over from an earlier start or reload.
     await update($, showAutoHow, () => false)
     void refreshOffer($).catch(() => null)
@@ -1495,6 +1588,7 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     timers.push($.clock.every(HEARTBEAT_MS, () => void (async () => {
       await heartbeat($)
       await recheckNumber($, key).catch(() => undefined)
+      await noteRoom($, key).catch(() => undefined)
       await applyChoice($, key)
       await refreshOffer($)
     })().catch(() => undefined)))
@@ -1830,8 +1924,14 @@ export const register: Register = (on, options) => {
       $.ui.toast(copied.isCopied ? 'tint: copied. Paste it to a friend 💌' : `tint: ${REPO_URL}`)
     }
     const later = async () => settle({ updateLater: scriptMark((await tintScript($)) ?? '') })
-    const colorsLater = async () =>
-      settle({ colorsLater: colorsMark(desktopRepos(await readChoices($))), colorsLaterFor: (await appStarted($)) ?? undefined })
+    const colorsLater = async () => {
+      const repos = desktopRepos(await readChoices($))
+      const rooms = desktopRooms(await readRooms($), repos)
+      await settle({
+        colorsLater: colorsMark(repos, rooms), colorsLaterFor: (await appStarted($)) ?? undefined,
+        roomsLater: Object.keys(newRooms(rooms, await savedSnippet($))),
+      })
+    }
     // Each offer: a one-line title in Markdown (so the mod's name is a bold link to its page,
     // to find it again and share it), then one line per step with what to press in bold.
     type Part = string | { bold: string }

@@ -77,7 +77,10 @@ const prefsWith = (snippet?: string) => JSON.stringify({
   } } },
 })
 
-function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1], files: Map<string, string>, openFails = false) {
+// host: the desktop app's own id for the session (CLAUDE_CODE_HOST_SESSION_ID); template: the
+// script this copy ships, when a test needs its /*ROOMS*/ marks.
+function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...args: never[]) => unknown>>[1], files: Map<string, string>, openFails = false,
+  { host, template = TEMPLATE }: { host?: string; template?: string } = {}) {
   const out = {
     copied: undefined as string | undefined, toasts: [] as string[], runs: [] as string[][], ps: '', clock: undefined as unknown as ReturnType<typeof mock.clock>,
     // Reads per path, and modification times for fs.stat (none: stat is refused, as where it cannot be told).
@@ -85,14 +88,14 @@ function desktopWorld(on: Parameters<Extract<Parameters<typeof test>[1], (...arg
   }
   const clock = mock.clock(on, { now: 1_000_000 })
   Object.assign(out, { clock })
-  mock.env(on, { HOME })
+  mock.env(on, host === undefined ? { HOME } : { HOME, CLAUDE_CODE_HOST_SESSION_ID: host })
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: '/work/lab-notes' }))
   on('session.repo', () => ({ value: { root: '/work/lab-notes', remote: null, internal: false, name: null } }))
   on('session.surfaces', () => ({ value: ['desktop'] as never }))
   on('fs.read', ($, e) => {
     out.reads.set(e.path, (out.reads.get(e.path) ?? 0) + 1)
-    if (e.path.endsWith('/desktop/tint.js')) return { value: TEMPLATE }
+    if (e.path.endsWith('/desktop/tint.js')) return { value: template }
     const text = files.get(e.path)
     return text === undefined ? { deny: 'ENOENT' } : { value: text }
   })
@@ -345,6 +348,85 @@ test('desktop band: colors chosen after the snippet was saved ride in the band; 
   const done = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
   expect(await done.find({ type: 'Svg' })).toBeUndefined()
   await done.unmount()
+})
+
+const ROOMS_TEMPLATE = 'const REPOS = /*REPOS*/{}/*REPOS*/ const ROOMS = /*ROOMS*/{}/*ROOMS*/ // tint'
+const savedWith = (rooms: Record<string, string>) =>
+  `const REPOS = /*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/ const ROOMS = /*ROOMS*/${JSON.stringify(rooms)}/*ROOMS*/ // tint`
+
+test('desktop band: a session\'s folder, by the app\'s id for it, rides in the band and is saved with the script; Later waits for the next room', async ($, on) => {
+  const files = new Map<string, string>([
+    [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' }, 'no-color': { icon: '🦊' } })],
+    // A room of a repo with no color yet is noted but never drawn or saved.
+    [`${DIR}/rooms.json`, JSON.stringify({ local_old: 'lab-notes', local_grey: 'no-color' })],
+    [`${APP}/Preferences`, prefsWith(savedWith({ local_old: 'lab-notes' }))],
+  ])
+  const out = desktopWorld(on, files, false, { host: 'local_room1', template: ROOMS_TEMPLATE })
+  out.ps = APP_ROW('Fri Oct  9 09:00:00 2026')
+  await $.session.start(START)
+  // Noted once, newest last, the others kept.
+  expect(JSON.parse(files.get(`${DIR}/rooms.json`)!)).toEqual({ local_old: 'lab-notes', local_grey: 'no-color', local_room1: 'lab-notes' })
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  // Not the script's update. Until Done the script may not run, so rooms alone bring no offer of
+  // their own (only it can tell a work room from another folder), but the reminder carries them.
+  expect(await ui.find({ key: 'desktop-update' })).toBeUndefined()
+  expect(await ui.find({ key: 'desktop-done' })).toBeDefined()
+  // Only the room the saved script lacks; "fresh": none put off yet.
+  expect((await carried(ui)).rooms).toEqual({ local_room1: 'lab-notes' })
+  expect((await carried(ui)).fresh).toEqual({ local_room1: 'lab-notes' })
+  await ui.press({ key: 'desktop-done' })
+  await out.clock.settle()
+  // The script runs: the offer, which it hides unless a work room from another folder waits.
+  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  expect((await carried(ui)).band).toBe('colors')
+
+  // Later: away until another room starts, and the room put off keeps no band up after that.
+  await ui.press({ key: 'desktop-colors-later' })
+  expect(await ui.find({ key: 'desktop-colors' })).toBeUndefined()
+  files.set(`${DIR}/rooms.json`, JSON.stringify({ ...JSON.parse(files.get(`${DIR}/rooms.json`)!), local_room2: 'lab-notes' }))
+  await out.clock.advance(30_000)
+  await out.clock.settle()
+  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  expect((await carried(ui)).rooms).toEqual({ local_room1: 'lab-notes', local_room2: 'lab-notes' })
+  expect((await carried(ui)).fresh).toEqual({ local_room2: 'lab-notes' })
+
+  // Update saves every room whose repo has a color into the script.
+  await ui.press({ key: 'desktop-colors' })
+  expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('/*ROOMS*/{"local_old":"lab-notes","local_room1":"lab-notes","local_room2":"lab-notes"}/*ROOMS*/')
+  await ui.unmount()
+
+  // Saved: nothing more to carry, and no band.
+  files.set(`${APP}/Preferences`, prefsWith(files.get(`${DIR}/desktop-snippet.js`)!))
+  await $.session.start(START)
+  const done = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await done.find({ type: 'Svg' })).toBeUndefined()
+  expect(await done.find({ key: 'desktop-colors' })).toBeUndefined()
+  await done.unmount()
+})
+
+test('desktop band: a rooms.json that cannot be read is left as it is', async ($, on) => {
+  const files = new Map<string, string>([
+    [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
+    [`${DIR}/rooms.json`, '{ not json'],
+    [`${APP}/Preferences`, prefsWith(savedWith({}))],
+  ])
+  desktopWorld(on, files, false, { host: 'local_room1', template: ROOMS_TEMPLATE })
+  await $.session.start(START)
+  expect(files.get(`${DIR}/rooms.json`)).toBe('{ not json')
+})
+
+test('desktop band: without the app\'s id for the session, no room is noted and nothing is offered', async ($, on) => {
+  const files = new Map<string, string>([
+    [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' } })],
+    [`${APP}/Preferences`, prefsWith(savedWith({}))],
+  ])
+  desktopWorld(on, files, false, { template: ROOMS_TEMPLATE })
+  await $.session.start(START)
+  expect(files.has(`${DIR}/rooms.json`)).toBe(false)
+  const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  expect(await ui.find({ key: 'desktop-colors' })).toBeUndefined()
+  expect(await ui.find({ type: 'Svg' })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('desktop band: after an app start the reminder carries due colors too, but is never hidden', async ($, on) => {

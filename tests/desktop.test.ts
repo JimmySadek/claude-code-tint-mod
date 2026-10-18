@@ -15,6 +15,7 @@ test('desktop: /mod_tint css copies the tint with every repo\'s colors', async (
       'old-repo': { color: 'teal' },
       'no-color': { icon: '📦' },
       'BAM-Knowledge': { icon: '📚', color: '#67A451', labels: ['BAM', 'BAM UI', 'BAM common'] },
+      'bam-ui': { icon: '📚', color: '#67A451' },
       'bam-brand': { icon: '🏷️', color: '#C2185B', labels: ['BAM', 42] },
       EPT: { icon: '⚽', labels: ['EPT'] },
       'bam-ui-kit': { icon: '📚', color: '#123456', labels: ['BAM UI kit', 'BAM shared', 'BAM common'] },
@@ -68,7 +69,9 @@ test('desktop: /mod_tint css copies the tint with every repo\'s colors', async (
   // emoji; a name two projects share with different emoji is left out (no guess).
   expect(repos['topic:claude mods']).toEqual(['#7C3AED', '🧩'])
   expect(repos['topic:claude mods wt']).toEqual(['#7C3AED', '🧩'])
+  // "BAM UI": a BAM-Knowledge label and the bam-ui repo, one emoji and color, so one look.
   expect(repos['topic:bam ui']).toEqual(['#67A451', '📚'])
+  expect(repos['bam-ui']).toEqual(['#67A451', '📚'])
   expect(repos['topic:bam knowledge']).toEqual(['#67A451', '📚'])
   expect(repos['topic:bam brand']).toEqual(['#C2185B', '🏷️'])
   expect(repos['topic:ept']).toEqual(['', '⚽'])

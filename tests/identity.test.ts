@@ -493,6 +493,29 @@ test('topic emoji: a folder known by another name counts as that project\'s own'
   expect(await title($, 'One-repo · Colleagues')).toBe('🔮 One-repo · Colleagues')
 })
 
+test('topic emoji: a folder of its own for a labelled project (bam-ui) keeps one emoji when it has the same one', async ($, on) => {
+  // bam-ui is its own repo, and "BAM UI" is also a BAM-Knowledge label: with the same emoji
+  // the name still means one emoji, in another folder and in its own.
+  const world = setup(on, 'one-repo', null, { ...PROJECTS, 'bam-ui': { icon: '📚', color: '#67A451' } })
+  await $.session.start({ cwd: '/work/one-repo', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  expect(await title($, 'BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+  expect(await title($, '🔮 BAM UI · App design direction')).toBe('📚 BAM UI · App design direction')
+  // An emoji of its own for bam-ui (one tint would pick) makes the name two projects: no guess.
+  world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...PROJECTS, 'bam-ui': { icon: '🧱', color: '#B5651D' } }))
+  await world.clock.advance(31_000)
+  expect(await title($, 'BAM UI · App design direction')).toBe('BAM UI · App design direction')
+})
+
+test('topic emoji: in the bam-ui folder a BAM UI title is its own project and gets none', async ($, on) => {
+  const world = setup(on, 'bam-ui', null, { ...PROJECTS, 'bam-ui': { icon: '📚', color: '#67A451' } })
+  await $.session.start({ cwd: '/work/bam-ui', surface: 'desktop', isInteractive: true })
+  await world.clock.settle()
+  expect(await title($, '📚 BAM UI · Tokens')).toBe('BAM UI · Tokens')
+  expect(await title($, 'BAM UI · Tokens')).toBe('BAM UI · Tokens')
+  expect(await title($, 'Veheri · Batch')).toBe('🌐 Veheri · Batch')
+})
+
 test('topic emoji: a clone named by its remote is that project\'s own folder, and reset keeps its labels', async ($, on) => {
   const world = setup(on, 'site-migration-AI-opt', null, PROJECTS, undefined, ['desktop'], 'git@github.com:me/veheri-web.git')
   await $.session.start({ cwd: '/work/site-migration-AI-opt', surface: 'desktop', isInteractive: true })

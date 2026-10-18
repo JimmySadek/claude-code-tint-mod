@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.12.0] - 2026-10-18
+
+### Changed
+- **Thread titles no longer start with the repo's emoji.** The desktop sidebar groups threads under their project's heading, and the heading already shows the emoji, so every thread repeated it (🧪 on each Claude-Labs thread). A title is now `Project · topic`. Role marks stay: 💬 for a side chat, 🔧 for a helper. Any emoji a repo has or had (this one's or another's, so a work room named with its project's emoji too), a color square and the old keycap form (`🧪1️⃣`) are dropped; any other emoji is the title's own and stays. The hidden title note now asks Claude once to drop such an emoji instead of adding one, on any prompt, so work rooms are cleaned too. A window name (`/mod_tint name`) is the whole title, after a kept role mark or the title's own emoji. A repo emoji right after a role mark (`💬 🧪 Lab · Why`) goes too, and `🖌` and `🖌️` count as the same emoji. The terminal strip and the live label still show the emoji. No new desktop script needed. Tested in the test suite; not yet in the real app.
+
 ## [1.11.1] - 2026-10-18
 
 ### Fixed

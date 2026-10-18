@@ -93,15 +93,15 @@ test('second window of a repo gets #2, same color, and /mod_tint works', { optio
   // No status line under the prompt any more.
   expect(footer).toBeUndefined()
 
-  // The split header's title gets the color square, never the window's number.
+  // The title gets no emoji and never the window's number: the window name, else its own words.
   const named = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
-  expect(named.sessionTitle).toBe('🟦 Backend')
+  expect(named.sessionTitle).toBe('Backend')
   await $.command.run({ command: 'mod_tint', args: 'name', ...AT_PROMPT })
   const plain = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
-  expect(plain.sessionTitle).toBe('🟦 Old work')
-  // A title that already carries the mark does not get it twice.
+  expect(plain.sessionTitle).toBe('Old work')
+  // A title that still carries the mark loses it.
   const again = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟦 Old work' } as never)
-  expect(again.sessionTitle).toBe('🟦 Old work')
+  expect(again.sessionTitle).toBe('Old work')
 
   // No border around your messages at first; /mod_tint frame on adds one.
   const mine = { text: 'hello', origin: { kind: 'composer' }, isExpanded: true } as never

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.11.1-46AD5B" alt="Version 1.11.1"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-1.12.0-46AD5B" alt="Version 1.12.0"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://code.claude.com/docs/en/plugins/mods/overview"><img src="https://img.shields.io/badge/Claude%20Code-2.1.287%2B-D97757" alt="Claude Code 2.1.287 or later"></a>
 </p>
@@ -14,7 +14,7 @@
 
 | Where | What you get |
 |---|---|
-| 🪟 **Window titles** | `🧪 Shop · Login bug`: the repo's emoji, then the project and the main topic |
+| 🪟 **Window titles** | `Shop · Login bug`: the project and the main topic; the repo's emoji shows once, on its sidebar heading |
 | 💻 **Terminal** | a strip in the repo's color above the prompt, with the window's number |
 | 🖥️ **Desktop app** | the whole app in color: a ring around the window you're in (each window of a repo its own shade, up to 10), a soft tint, colored repo names in the sidebar |
 
@@ -118,7 +118,7 @@ printf '{"allowDevTools": false}\n' > ~/Library/Application\ Support/Claude/deve
 
 - **Emoji:** the first window of a new repo asks Claude Haiku once for an emoji that fits it. Later changes happen in your window, only when you ask.
 - **Colors:** measured from the emoji on your Mac by a small Swift program. No AI.
-- **Window titles:** every few prompts, a short hidden note asks Claude to rename the window if its main topic changed. A title that already starts with an emoji keeps it, so a session another one started stays marked as it was (💬 a side chat, 🔧 a helper).
+- **Window titles:** every few prompts, a short hidden note asks Claude to rename the window if its main topic changed. Titles carry no repo emoji (the sidebar heading shows it), but a session another one started keeps its role mark (💬 a side chat, 🔧 a helper).
 - **Web:** at most one small request every 6 hours, asking GitHub for tint's newest version number. Nothing about you is sent.
 - **Files:** only `~/.claude/window-tint/`.
 </details>

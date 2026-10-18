@@ -33,7 +33,7 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
 
-  const send = async (source?: string, title = '🟦 Lab · Login bug') => {
+  const send = async (source?: string, title = 'Lab · Login bug') => {
     const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source } as never)
     return (result.additionalContext ?? []).join('\n')
   }
@@ -41,10 +41,11 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   expect(await send()).toBe('')
   const second = await send('user')
   expect(second).toContain('mcp__ccd_session_mgmt__set_session_title')
-  expect(second).toContain('"🟦 Lab · Login bug"')
-  expect(second).toContain('"🟦 <Project> · <main topic>"')
+  expect(second).toContain('"Lab · Login bug"')
+  expect(second).toContain('"<Project> · <main topic>"')
+  expect(second).toContain('No repository emoji')
   expect(second).toContain('no window number')
-  expect(second).not.toMatch(/1️⃣/u)
+  expect(second).not.toMatch(/1️⃣|🟦/u)
 
   // Prompts 3 to 6 stay quiet; a wakeup or another session's message does not count.
   for (let i = 3; i <= 6; i++) expect(await send()).toBe('')
@@ -54,7 +55,7 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   // A window name fixes the title to that name.
   await $.command.run({ command: 'mod_tint', args: 'name Backend', ...AT_PROMPT })
   for (let i = 8; i <= 11; i++) await send()
-  expect(await send()).toContain('exactly "🟦 Backend"')
+  expect(await send()).toContain('exactly "Backend"')
 
   // /mod_tint titles off stops the checks; on brings them back.
   await $.command.run({ command: 'mod_tint', args: 'titles off', ...AT_PROMPT })
@@ -65,30 +66,30 @@ test('desktop: Claude is asked about the title at prompt 2, then every 5th of yo
   expect(await send()).toContain('window-tint title check')
 })
 
-test('a title with no mark is filled once, whoever sent the prompt (a work room)', async ($, on) => {
+test('a title that starts with a repo emoji is cleaned once, whoever sent the prompt (a work room)', async ($, on) => {
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   const send = async (title: string, source = 'sdk') =>
     ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source } as never)).additionalContext ?? []).join('\n')
 
   // The parent session's message is enough: a work room never reaches your own prompt count.
-  const fill = await send('Templates 0.4')
-  expect(fill).toContain('Start it with "🟦 "')
-  expect(fill).toContain('(the words now: "Templates 0.4")')
-  expect(fill).toContain('The title does not have that start yet')
+  const clean = await send('🟦 Templates 0.4')
+  expect(clean).toContain('Drop the leading "🟦"')
+  expect(clean).toContain('(now "Templates 0.4")')
+  expect(clean).toContain('The title still starts with that emoji')
   // Asked once: a title Claude cannot rename (one you typed) is not asked about again.
-  expect(await send('Templates 0.4')).toBe('')
-  // The old keycap form: the number goes, the words stay.
+  expect(await send('🟦 Templates 0.4')).toBe('')
+  // The old keycap form: emoji and number go, the words stay.
   const old = await send('🦊3️⃣ Templates 0.4')
-  expect(old).toContain('drop the old window number')
-  expect(old).toContain('(the words now: "Templates 0.4")')
-  // A color square tint left before the emoji was picked is replaced too.
-  expect(await send('🟥 BAM · Templates')).toContain('in place of "🟥 "')
-  // No title yet: nothing to fill.
+  expect(old).toContain('Drop the emoji and old window number')
+  expect(old).toContain('(now "Templates 0.4")')
+  // A title with no emoji has nothing to clean.
+  expect(await send('Lab · Templates 0.4')).toBe('')
+  // No title yet: nothing to clean.
   expect(((await $.classic.UserPromptSubmit({ prompt: 'hi', source: 'sdk' } as never)).additionalContext ?? [])).toEqual([])
 })
 
-test('a title that starts with its own mark keeps it: side chats, helpers, work rooms', async ($, on) => {
+test('a title that starts with a role mark or an emoji of its own keeps it', async ($, on) => {
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   const note = async (title: string) => {
@@ -107,11 +108,11 @@ test('a title that starts with its own mark keeps it: side chats, helpers, work 
     const kept = await note(title)
     expect(kept).toContain(`Keep its leading "${mark}" as it is`)
     expect(kept).toContain(`"${mark} <Project> · <main topic>"`)
-    expect(kept).not.toContain('Start it with')
+    expect(kept).not.toContain('Drop the')
   }
 })
 
-test('with the tint hidden, the note never adds a mark and nothing is filled', async ($, on) => {
+test('with the tint hidden, the note is the same: no emoji is added, a role mark stays', async ($, on) => {
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await $.command.run({ command: 'mod_tint', args: 'off', ...AT_PROMPT })
@@ -120,13 +121,12 @@ test('with the tint hidden, the note never adds a mark and nothing is filled', a
   expect(await send('sdk')).toBe('')
   expect(await send()).toBe('')
   const due = await send()
-  expect(due).toContain('do not add an emoji or a number')
+  expect(due).toContain('Do not add an emoji or a number')
   expect(due).toContain('"<Project> · <main topic>"')
   expect(due).not.toMatch(/🟦/u)
-  // A title that has a mark of its own keeps it, hidden or not.
   for (let i = 0; i < 4; i++) await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '💬 BAM · Why 0.4?' } as never)
   const marked = ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '💬 BAM · Why 0.4?' } as never)).additionalContext ?? []).join('\n')
-  expect(marked).toContain('keep the title\'s leading "💬" as it is')
+  expect(marked).toContain('Keep its leading "💬" as it is')
   expect(marked).toContain('"💬 <Project> · <main topic>"')
 })
 

@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.13.3] - 2026-10-19
+
+### Fixed
+- **A work room's emoji sits on its title's line again.** In 1.13.2 the emoji in front of a work room from another folder (`🤖 AZKA Bot · In-depth method study`) took a line of its own above the title, so the row was two lines tall. The script drew it in front of the whole title, and the app keeps a title's text in a block box of its own (it cuts a long title with "…"), so the emoji went on the line before that box. It is now drawn inside the box that holds the text, with a line height that does not make the row taller. `tests/page/nested-rooms.html` now gives each title such a box: each work room's row must be as tall as one without an emoji, with the emoji in the text's own box, and a long title must still be cut with "…". The 1.13.2 script fails 8 of its 23 checks (rows 43px tall instead of 24.5px); this one passes all 23. Found in the real app (Claude desktop, after **Update**); the fix is checked on the mock page only. Needs the new desktop script once: the band offers **Update**.
+
 ## [1.13.2] - 2026-10-19
 
 ### Fixed

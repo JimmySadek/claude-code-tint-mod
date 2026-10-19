@@ -457,7 +457,7 @@
     [data-wt-tint] [data-cds="WorkingMark"] { filter: var(--wt-dots) !important; }   /* drawn in a fixed orange: turned by a filter */
     [data-wt-tint] [data-cds="WorkingMark"], [data-wt-tint] [data-cds="WorkingMark"] * { --cds-clay: #D97757 !important; }   /* the filter starts from orange */
     [data-wt-tint] svg[data-cds="Spark"] { fill: var(--wt-accent) !important; }
-    [data-wt-icon]::before { content: attr(data-wt-icon) "\\00a0"; }
+    [data-wt-icon]::before { content: attr(data-wt-icon) "\\00a0"; line-height: 1; }   /* an emoji's own line height would make the row taller */
     [data-wt-ring]::after {
       content: ""; position: absolute; pointer-events: none; z-index: 2147483000;
       top: var(--wt-t); left: var(--wt-l); right: var(--wt-r); bottom: var(--wt-b);
@@ -697,14 +697,18 @@
       parent = { section, color }
       const parts = [label, ...leaves(label)].filter(el => !isLabel.has(el))   // a repo's name: colored as one above
       // A title the app renamed in place may have been a repo's name at the last paint.
-      for (const el of parts) el.removeAttribute('data-wt-icon')
+      for (const el of [label, ...label.querySelectorAll('[data-wt-icon]')]) if (!isLabel.has(el)) el.removeAttribute('data-wt-icon')
       // A title that is a repo's name has that repo's emoji already (see above).
       const isName = isLabel.has(label) || leaves(label).some(el => isLabel.has(el))
       const mark = isOther && known[folder]?.[1] && !LEAD.test(title) && !isName ? known[folder][1] : null
       if (mark) {
-        label.setAttribute('data-wt-icon', mark)
-        if (!touched.has(label)) touched.set(label, new Set())   // so a paint without it clears it
-        seen.add(label)
+        // On the box that holds the title's text, so the emoji is on its line: the app wraps the
+        // text in a block box of its own (it cuts a long title with "…"), and an emoji in front of
+        // that box, on the label, took a line of its own.
+        const box = [label, ...label.querySelectorAll('*')].find(el => [...el.childNodes].some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim())) ?? label
+        box.setAttribute('data-wt-icon', mark)
+        if (!touched.has(box)) touched.set(box, new Set())   // so a paint without it clears it
+        seen.add(box)
       }
       // The app's text: a color from the last paint goes here, as the emoji keeps the label in use.
       if (!color || sid === focusSid || (shownSids.has(sid) && !tintedSids.has(sid))) {

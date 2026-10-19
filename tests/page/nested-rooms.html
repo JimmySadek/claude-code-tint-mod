@@ -2,7 +2,9 @@
 <!--
   Browser check for desktop/tint.js: work rooms nested under another folder's heading.
   The test runner has no DOM, so this page runs the real script on a mock sidebar.
-  In the app a nested row has a .group box too (tint 1.13.1 took that for a top-level row).
+  In the app a nested row has a .group box too (tint 1.13.1 took that for a top-level row), and a
+  title's text sits in a block box of its own that cuts a long title with "…" (tint 1.13.2 drew
+  the emoji in front of that box, on a line of its own).
 
   From the repo root:
     python3 -m http.server 8765 --bind 127.0.0.1
@@ -22,6 +24,7 @@
   .epitaxy-chat-panel { background: var(--cds-surface-1); border-radius: 8px; min-width: 400px }
   .card { border: 1px solid #555; padding: 6px }
   .group { border-radius: 8px; padding: 4px 8px }
+  .truncate { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
   .nested .group { margin-left: 20px }
   pre { white-space: pre-wrap }
 </style>
@@ -30,24 +33,25 @@
 <nav>
   <div class="group/section">
     <div data-row-key="label:project-/Users/me/one-repo"><span>one-repo</span></div>
-    <div data-row-key="code:open"><div class="group"><span data-row-label>One-repo · Open window</span></div></div>
-    <div data-row-key="code:own"><div class="group"><span data-row-label>One-repo · Colleagues</span></div></div>
-    <div class="nested" data-row-key="code:bam"><div class="group"><span data-row-label>BAM UI · Screen audit</span></div></div>
-    <div class="nested" data-row-key="code:fps"><div class="group"><span data-row-label>FPS Labs · BAM burst icon</span></div></div>
-    <div class="nested" data-row-key="code:azka"><div class="group"><span data-row-label>AZKA Bot · In-depth method study</span></div></div>
-    <div class="nested" data-row-key="code:same"><div class="group"><span data-row-label>One-repo · Same folder room</span></div></div>
+    <div data-row-key="code:open"><div class="group"><span data-row-label><span class="truncate">One-repo · Open window</span></span></div></div>
+    <div data-row-key="code:own"><div class="group"><span data-row-label><span class="truncate">One-repo · Colleagues</span></span></div></div>
+    <div class="nested" data-row-key="code:bam"><div class="group"><span data-row-label><span class="truncate">BAM UI · Screen audit</span></span></div></div>
+    <div class="nested" data-row-key="code:fps"><div class="group"><span data-row-label><span class="truncate">FPS Labs · BAM burst icon</span></span></div></div>
+    <div class="nested" data-row-key="code:azka"><div class="group"><span data-row-label><span class="truncate">AZKA Bot · In-depth method study</span></span></div></div>
+    <div class="nested" data-row-key="code:long"><div class="group"><span data-row-label><span class="truncate">BAM UI · A long title the sidebar has to cut with an ellipsis at its end</span></span></div></div>
+    <div class="nested" data-row-key="code:same"><div class="group"><span data-row-label><span class="truncate">One-repo · Same folder room</span></span></div></div>
   </div>
   <div class="group/section">
     <div data-row-key="label:project-/Users/me/bam-ui"><span>bam-ui</span></div>
-    <div data-row-key="code:bam-top"><div class="group"><span data-row-label>Screens · Home</span></div></div>
+    <div data-row-key="code:bam-top"><div class="group"><span data-row-label><span class="truncate">Screens · Home</span></span></div></div>
   </div>
   <div class="group/section">
     <div data-row-key="label:project-/Users/me/FPS_Labs/design-systems"><span>design-systems</span></div>
-    <div data-row-key="code:fps-top"><div class="group"><span data-row-label>Icons · Pixel grid</span></div></div>
+    <div data-row-key="code:fps-top"><div class="group"><span data-row-label><span class="truncate">Icons · Pixel grid</span></span></div></div>
   </div>
   <div class="group/section">
     <div data-row-key="label:project-/Users/me/AZKA-BOT"><span>AZKA-BOT</span></div>
-    <div data-row-key="code:azka-top"><div class="group"><span data-row-label>Knowledge · Base plan</span></div></div>
+    <div data-row-key="code:azka-top"><div class="group"><span data-row-label><span class="truncate">Knowledge · Base plan</span></span></div></div>
   </div>
 </nav>
 <main>
@@ -70,7 +74,7 @@
     'AZKA-BOT': ['#337E8C', '🤖'],
   }
   // The app's session id -> the folder it runs in (rooms.json, saved with the script).
-  const ROOMS = { open: 'one-repo', own: 'one-repo', bam: 'bam-ui', fps: '.design-systems', azka: 'AZKA-BOT', same: 'one-repo' }
+  const ROOMS = { open: 'one-repo', own: 'one-repo', bam: 'bam-ui', long: 'bam-ui', fps: '.design-systems', azka: 'AZKA-BOT', same: 'one-repo' }
   const src = new URLSearchParams(location.search).get('src') || 'desktop/tint.js'
   let script = await fetch('/' + src).then(r => r.text())
   for (const [part, value] of [['REPOS', REPOS], ['ROOMS', ROOMS]]) {
@@ -82,7 +86,19 @@
   await new Promise(done => setTimeout(done, 1500))
 
   const label = sid => document.querySelector(`[data-row-key="code:${sid}"] [data-row-label]`)
-  const mark = sid => label(sid).getAttribute('data-wt-icon')
+  const marked = sid => [label(sid), ...label(sid).querySelectorAll('[data-wt-icon]')].filter(el => el.hasAttribute('data-wt-icon'))
+  const mark = sid => marked(sid)[0]?.getAttribute('data-wt-icon') ?? null
+  const textBox = sid => label(sid).querySelector('.truncate')
+  const rowBox = sid => document.querySelector(`[data-row-key="code:${sid}"] .group`)
+  const lineHeight = rowBox('own').getBoundingClientRect().height   // a row whose title has no emoji
+  // The emoji is on the title's line: the row is as tall as one without an emoji, and the text
+  // starts at the top of the label.
+  const isOneLine = sid => {
+    const range = document.createRange()
+    range.selectNodeContents(textBox(sid))
+    return Math.abs(rowBox(sid).getBoundingClientRect().height - lineHeight) < 1
+      && Math.abs(range.getClientRects()[0].top - label(sid).getBoundingClientRect().top) < 3
+  }
   const color = sid => label(sid).style.color
   const lines = []
   let isPass = true
@@ -98,9 +114,16 @@
     ['azka', 'azka-top', '🤖', 'AZKA Bot · In-depth method study (AZKA-BOT)'],
   ]) {
     check(`${title}: emoji ${emoji}`, mark(sid) === emoji, mark(sid))
+    check(`${title}: the emoji is in the text's own box`, marked(sid).length === 1 && marked(sid)[0] === textBox(sid), marked(sid).map(el => el.className || el.tagName).join(', '))
+    check(`${title}: emoji and title on one line`, isOneLine(sid), `row ${rowBox(sid).getBoundingClientRect().height}px tall, one line is ${lineHeight}px`)
     check(`${title}: its folder's soft color`, !!color(sid) && color(sid) === color(top), `${color(sid)} vs ${color(top)}`)
     check(`${title}: not the heading's color`, color(sid) !== color('own'), color(sid))
   }
+  // A long title: emoji in front, still one line, cut with an ellipsis.
+  const long = textBox('long')
+  check('Long title: emoji 📚 in the text\'s own box', marked('long').length === 1 && marked('long')[0] === long && mark('long') === '📚', mark('long'))
+  check('Long title: one line', isOneLine('long'), `row ${rowBox('long').getBoundingClientRect().height}px tall, one line is ${lineHeight}px`)
+  check('Long title: cut with an ellipsis', long.scrollWidth > long.clientWidth && getComputedStyle(long).textOverflow === 'ellipsis', `${long.scrollWidth} / ${long.clientWidth}`)
   // A nested room in the heading's own folder, and a top-level thread: no emoji, heading's color.
   check('Same folder room: no emoji', !mark('same'), mark('same'))
   check('Same folder room: the heading\'s soft color', !!color('same') && color('same') === color('own'), `${color('same')} vs ${color('own')}`)
@@ -109,7 +132,7 @@
 
   window.__windowTint.off()
   const left = document.querySelectorAll('[data-wt-icon], [data-wt-row], [data-wt-pill], [data-wt-band]').length
-    + [...document.querySelectorAll('[data-row-label]')].filter(el => el.style.color).length
+    + [...document.querySelectorAll('[data-row-label], [data-row-label] *')].filter(el => el.style.color).length
   check('off() leaves nothing behind', left === 0, left)
 
   document.title = isPass ? 'PASS' : 'FAIL'

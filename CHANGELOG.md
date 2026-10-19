@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.13.2] - 2026-10-19
+
+### Fixed
+- **A work room from another folder gets its emoji and color in the sidebar, as its hover already did.** In 1.13.1 a work room under another folder's heading (`BAM UI · Screen audit` running in bam-ui, under 🔮 one-repo) kept the heading's lilac text and got no emoji. The script looked for a thread's own folder only on a row with no `.group` box, taking that as the sign of a nested thread; in the app a nested row has that box too, so every row took its heading's folder. Every row now takes the folder known for its session (the saved rooms, the live label, or its open window), else its heading's. A top-level thread runs in its heading's folder, so it looks the same as before. A work room whose folder is not known yet now takes its heading's color instead of the app's grey. Reproduced on a mock page with the 1.13.1 script (rows with a `.group` box, as in the app) and checked there after the fix; not yet tested in the real app. Needs the new desktop script once: the band offers **Update**.
+
 ## [1.13.1] - 2026-10-18
 
 ### Fixed

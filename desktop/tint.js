@@ -51,8 +51,8 @@
   // so the mod notes each desktop session's folder by the app's own session id (ROOMS, saved with
   // this script, and the live labels' "rooms" for sessions started since). A session the mod has
   // not noted (no mod in it, or the app stopped naming the id) has its folder known while its
-  // window is open (the window's label or header chip); until then a 💬 or 🔧 thread takes the
-  // color of the thread above it, and any other stays as the app draws it.
+  // window is open (the window's label or header chip); until then it is taken for its heading's
+  // folder (the page cannot tell a nested row from a top-level one).
   // Live labels: while colors chosen after this script was saved wait to be saved into it, tint
   // draws a 1-pixel picture in the band above each window's prompt, labelled
   // 'tint-colors {"repos": {name: [color, emoji]}, "rooms": {id: repo}, "fresh": {id: repo}, "window": [repo, number], "at": ms, "band": "colors"}':
@@ -667,10 +667,12 @@
 
     // Thread titles: soft text in their folder's color, and another folder's emoji in front (see
     // FOLDERS). The selected thread keeps the app's text: the focused window's (it has its fill),
-    // or one the app shows in a window this script gives no color; its emoji is still drawn. A
-    // thread nested under another (it has no pill of its own) is the only one that can be from
-    // another folder; with its folder unknown, a 💬 or 🔧 title takes the color of the thread
-    // above it. A title that starts with an emoji or role mark gets none in front.
+    // or one the app shows in a window this script gives no color; its emoji is still drawn. Every
+    // row takes the folder known for its session, else its heading's: whether a row is nested
+    // cannot be told from the page (in the app a nested row has a .group box too), and a top-level
+    // thread runs in its heading's folder anyway. With no color from either, a 💬 or 🔧 title takes
+    // the color of the thread above it. A title that starts with an emoji or role mark gets none
+    // in front.
     const focusSid = focus ? windows.get(focus)?.sid : null
     const tintedSids = new Set([...windows.values()].map(info => info.sid))
     const shownSids = new Set([...document.querySelectorAll('.epitaxy-chat-panel [data-session-id]')]
@@ -685,15 +687,14 @@
       const sid = row.getAttribute('data-row-key').slice(5)
       const title = label.textContent.replace(/[\p{Co}\p{Cf}]/gu, '').trim()   // icon glyphs and invisible marks out
       const section = row.closest('[class*="group/section"]')
-      const isNested = !row.querySelector('.group')
       const heading = repoOfSid.get(sid) ?? null
-      const folder = (isNested ? roomOf(sid) ?? folderOfSid.get(sid) : heading) ?? null
+      const folder = roomOf(sid) ?? folderOfSid.get(sid) ?? heading
       // A heading spelled unlike every saved name cannot be compared: no emoji is guessed.
       const isOther = !!folder && !!heading && !!known[heading] && !isSameLook(folder, heading)
       if (isOther && said.fresh[sid] === folder && ROOMS[sid] !== folder) isNewOther = true
       let color = (folder && known[folder]?.[0]) || null
-      if (isNested && !folder && isRoleTitle(title) && parent?.section === section && parent.color) color = parent.color
-      if (!isNested) parent = { section, color }
+      if (!color && isRoleTitle(title) && parent?.section === section && parent.color) color = parent.color
+      parent = { section, color }
       const parts = [label, ...leaves(label)].filter(el => !isLabel.has(el))   // a repo's name: colored as one above
       // A title the app renamed in place may have been a repo's name at the last paint.
       for (const el of parts) el.removeAttribute('data-wt-icon')

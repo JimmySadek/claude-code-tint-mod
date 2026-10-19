@@ -1,0 +1,123 @@
+<!doctype html>
+<!--
+  Browser check for desktop/tint.js: work rooms nested under another folder's heading.
+  The test runner has no DOM, so this page runs the real script on a mock sidebar.
+  In the app a nested row has a .group box too (tint 1.13.1 took that for a top-level row).
+
+  From the repo root:
+    python3 -m http.server 8765 --bind 127.0.0.1
+  then open http://127.0.0.1:8765/tests/page/nested-rooms.html (the window at least 800px wide).
+  The title turns PASS or FAIL; each check is listed on the page.
+  ?src=<path from the repo root> runs another copy of the script (for a before check).
+-->
+<html data-mode="dark">
+<head>
+<meta charset="utf-8">
+<title>running</title>
+<style>
+  :root { --cds-surface-0: #1F1E1D; --cds-surface-1: #262624; --cds-surface-2: #30302E; --cds-surface-3: #30302E; --cds-page-bg: #1F1E1D }
+  body { margin: 0; display: flex; background: #1F1E1D; color: #C2C0B6; font: 14px system-ui }
+  nav { width: 320px; padding: 8px }
+  main { flex: 1; display: flex; flex-direction: column; gap: 9px; padding: 9px }
+  .epitaxy-chat-panel { background: var(--cds-surface-1); border-radius: 8px; min-width: 400px }
+  .card { border: 1px solid #555; padding: 6px }
+  .group { border-radius: 8px; padding: 4px 8px }
+  .nested .group { margin-left: 20px }
+  pre { white-space: pre-wrap }
+</style>
+</head>
+<body>
+<nav>
+  <div class="group/section">
+    <div data-row-key="label:project-/Users/me/one-repo"><span>one-repo</span></div>
+    <div data-row-key="code:open"><div class="group"><span data-row-label>One-repo · Open window</span></div></div>
+    <div data-row-key="code:own"><div class="group"><span data-row-label>One-repo · Colleagues</span></div></div>
+    <div class="nested" data-row-key="code:bam"><div class="group"><span data-row-label>BAM UI · Screen audit</span></div></div>
+    <div class="nested" data-row-key="code:fps"><div class="group"><span data-row-label>FPS Labs · BAM burst icon</span></div></div>
+    <div class="nested" data-row-key="code:azka"><div class="group"><span data-row-label>AZKA Bot · In-depth method study</span></div></div>
+    <div class="nested" data-row-key="code:same"><div class="group"><span data-row-label>One-repo · Same folder room</span></div></div>
+  </div>
+  <div class="group/section">
+    <div data-row-key="label:project-/Users/me/bam-ui"><span>bam-ui</span></div>
+    <div data-row-key="code:bam-top"><div class="group"><span data-row-label>Screens · Home</span></div></div>
+  </div>
+  <div class="group/section">
+    <div data-row-key="label:project-/Users/me/FPS_Labs/design-systems"><span>design-systems</span></div>
+    <div data-row-key="code:fps-top"><div class="group"><span data-row-label>Icons · Pixel grid</span></div></div>
+  </div>
+  <div class="group/section">
+    <div data-row-key="label:project-/Users/me/AZKA-BOT"><span>AZKA-BOT</span></div>
+    <div data-row-key="code:azka-top"><div class="group"><span data-row-label>Knowledge · Base plan</span></div></div>
+  </div>
+</nav>
+<main>
+  <div class="epitaxy-chat-panel">
+    <div data-session-id="open">header <span>one-repo</span></div>
+    <div style="height: 200px">conversation</div>
+    <div class="card"><div data-engine-site="AbovePrompt"><div data-plugin-drawn></div></div></div>
+    <div class="epitaxy-prompt"><div data-cds="ChatComposer"><div class="bg-surface-3" contenteditable="true">type</div></div></div>
+  </div>
+  <pre id="result">running…</pre>
+</main>
+<script>
+(async () => {
+  // As the mod saves them from repos.json: name (and folder alias) -> [color, emoji].
+  const REPOS = {
+    'one-repo': ['#CB93CF', '🔮'],
+    'bam-ui': ['#67A451', '📚'],
+    '.design-systems': ['#DD628E', '📐'],
+    'design-systems': ['#DD628E', '📐'],
+    'AZKA-BOT': ['#337E8C', '🤖'],
+  }
+  // The app's session id -> the folder it runs in (rooms.json, saved with the script).
+  const ROOMS = { open: 'one-repo', own: 'one-repo', bam: 'bam-ui', fps: '.design-systems', azka: 'AZKA-BOT', same: 'one-repo' }
+  const src = new URLSearchParams(location.search).get('src') || 'desktop/tint.js'
+  let script = await fetch('/' + src).then(r => r.text())
+  for (const [part, value] of [['REPOS', REPOS], ['ROOMS', ROOMS]]) {
+    const mark = `/*${part}*/{}/*${part}*/`
+    if (!script.includes(mark)) throw new Error(`${src} has no ${mark}`)
+    script = script.replace(mark, () => `/*${part}*/${JSON.stringify(value)}/*${part}*/`)
+  }
+  ;(0, eval)(script)
+  await new Promise(done => setTimeout(done, 1500))
+
+  const label = sid => document.querySelector(`[data-row-key="code:${sid}"] [data-row-label]`)
+  const mark = sid => label(sid).getAttribute('data-wt-icon')
+  const color = sid => label(sid).style.color
+  const lines = []
+  let isPass = true
+  const check = (name, ok, seen) => {
+    if (!ok) isPass = false
+    lines.push(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok ? '' : `  (seen: ${seen})`}`)
+  }
+  // A nested work room from another folder: that folder's emoji in front, and the same soft
+  // color as a thread under that folder's own heading.
+  for (const [sid, top, emoji, title] of [
+    ['bam', 'bam-top', '📚', 'BAM UI · Screen audit (bam-ui)'],
+    ['fps', 'fps-top', '📐', 'FPS Labs · BAM burst icon (.design-systems)'],
+    ['azka', 'azka-top', '🤖', 'AZKA Bot · In-depth method study (AZKA-BOT)'],
+  ]) {
+    check(`${title}: emoji ${emoji}`, mark(sid) === emoji, mark(sid))
+    check(`${title}: its folder's soft color`, !!color(sid) && color(sid) === color(top), `${color(sid)} vs ${color(top)}`)
+    check(`${title}: not the heading's color`, color(sid) !== color('own'), color(sid))
+  }
+  // A nested room in the heading's own folder, and a top-level thread: no emoji, heading's color.
+  check('Same folder room: no emoji', !mark('same'), mark('same'))
+  check('Same folder room: the heading\'s soft color', !!color('same') && color('same') === color('own'), `${color('same')} vs ${color('own')}`)
+  check('Top-level thread: no emoji', !mark('own'), mark('own'))
+  check('The focused thread keeps the app\'s text', !color('open'), color('open'))
+
+  window.__windowTint.off()
+  const left = document.querySelectorAll('[data-wt-icon], [data-wt-row], [data-wt-pill], [data-wt-band]').length
+    + [...document.querySelectorAll('[data-row-label]')].filter(el => el.style.color).length
+  check('off() leaves nothing behind', left === 0, left)
+
+  document.title = isPass ? 'PASS' : 'FAIL'
+  document.getElementById('result').textContent = `${src}\n${lines.join('\n')}`
+})().catch(error => {
+  document.title = 'FAIL'
+  document.getElementById('result').textContent = `FAIL  ${error.message}`
+})
+</script>
+</body>
+</html>

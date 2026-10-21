@@ -5,9 +5,9 @@ const HOME = '/home/me'
 // What the engine stamps on a command the person types at the prompt.
 const AT_PROMPT = { origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } } as const
 
-function setup(on: Parameters<TestBody>[1], surfaces: string[], repos?: Record<string, unknown>): void {
+function setup(on: Parameters<TestBody>[1], surfaces: string[], repos?: Record<string, unknown>, env: Record<string, string> = {}): void {
   mock.clock(on, { now: 1_000_000 })
-  mock.env(on, { HOME })
+  mock.env(on, { HOME, ...env })
   const files = new Map<string, string>()
   if (repos) files.set(`${HOME}/.claude/window-tint/repos.json`, JSON.stringify(repos))
   on('session.id', () => ({ value: 'me' }))
@@ -27,6 +27,7 @@ function setup(on: Parameters<TestBody>[1], surfaces: string[], repos?: Record<s
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('command.run', () => ({ value: { text: '' } }) as never)
   on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
 }
 
@@ -158,4 +159,43 @@ test('terminal only: no rename tool, so no title checks', async ($, on) => {
     const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: 'Fix login bug' } as never)
     expect(result.additionalContext ?? []).toEqual([])
   }
+})
+
+test('desktop: tint never sets the title itself, so the app\'s own title is never replaced by the folder name', async ($, on) => {
+  // The desktop app titles a new session itself; the hook still sees no title (or an old one).
+  setup(on, ['desktop'], { 'lab-notes': { icon: '🧪', color: '#259F3E' } })
+  expect((await $.classic.SessionStart({ source: 'startup' } as never)).sessionTitle).toBeUndefined()
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  const titleFor = async (title?: string, source?: string) =>
+    (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source } as never)).sessionTitle
+  // A message sent mid-turn, with no title yet, once brought back "lab-notes".
+  expect(await titleFor(undefined, 'user')).toBeUndefined()
+  expect(await titleFor('', 'sdk')).toBeUndefined()
+  expect(await titleFor('Global rules · Direct pushback')).toBeUndefined()
+  // A repo emoji is left to Claude's rename (the hidden note), not set by the hook.
+  expect(await titleFor('🧪 Lab · Login bug', 'sdk')).toBeUndefined()
+})
+
+test('desktop before its surface joins: the app\'s session id is enough to leave the title alone', async ($, on) => {
+  // At SessionStart the desktop surface may not have attached yet.
+  setup(on, [], undefined, { CLAUDE_CODE_HOST_SESSION_ID: 'local_abc-123' })
+  await $.session.start({ cwd: '/work/lab-notes', surface: null, isInteractive: true })
+  expect((await $.classic.SessionStart({ source: 'startup' } as never)).sessionTitle).toBeUndefined()
+  expect((await $.classic.SessionStart({ source: 'resume', session_title: '🧪 Lab · Login bug' } as never)).sessionTitle).toBeUndefined()
+})
+
+test('terminal: a title is never set to the bare folder name, and an unchanged one is not sent again', async ($, on) => {
+  setup(on, ['terminal'], { 'lab-notes': { icon: '🧪', color: '#259F3E' } })
+  expect((await $.classic.SessionStart({ source: 'startup' } as never)).sessionTitle).toBeUndefined()
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'terminal', isInteractive: true })
+  const titleFor = async (title?: string) =>
+    (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title } as never)).sessionTitle
+  expect(await titleFor()).toBeUndefined()
+  expect(await titleFor('🧪')).toBeUndefined()
+  expect(await titleFor('Fix login bug')).toBeUndefined()
+  // The repo emoji still goes from a terminal title, and a window name still sets it.
+  expect(await titleFor('🧪 Fix login bug')).toBe('Fix login bug')
+  await $.command.run({ command: 'mod_tint', args: 'name Backend', ...AT_PROMPT })
+  expect(await titleFor()).toBe('Backend')
+  expect(await titleFor('Backend')).toBeUndefined()
 })

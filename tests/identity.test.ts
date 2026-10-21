@@ -89,8 +89,9 @@ function setup(
 }
 
 const saved = (world: World) => JSON.parse(world.files.get(`${DIR}/repos.json`)!)
+// The title the window has after the hook: what it sets, else the one it had.
 const title = async ($: Parameters<TestBody>[0], current: string) =>
-  (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: current } as never)).sessionTitle
+  (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: current } as never)).sessionTitle ?? current
 // Whether the window's label shows this mark first ("🧪  LAB-NOTES  1" in the terminal band):
 // titles carry no repository emoji, so the label is where a window's emoji shows.
 const BAND = {
@@ -292,7 +293,8 @@ test('the set tool applies what the person chose: emoji with its measured color,
   const named = await set({ name: 'Mods' })
   expect(String(named.result)).toBe('This window is named "Mods".')
   expect(String(picked.result)).toContain('Other windows of the repository follow')
-  expect(await title($, 'Work')).toBe('Mods')
+  // On the desktop the hook leaves the title to the app: Claude's rename note carries the name.
+  expect(await title($, 'Work')).toBe('Work')
   await set({ name: '' })
   expect(await title($, 'Work')).toBe('Work')
 
@@ -310,8 +312,9 @@ test('the set tool applies what the person chose: emoji with its measured color,
 })
 
 test('titles drop a repository\'s emoji and the old number; role marks and other emoji stay', async ($, on) => {
-  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } })
-  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  // In the terminal: on the desktop the hook never sets a title (titles.test.ts).
+  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } }, undefined, ['terminal'])
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'terminal', isInteractive: true })
   await world.clock.settle()
 
   // The form before 1.9.0, whatever emoji and number it had, loses both.
@@ -371,7 +374,7 @@ test('titles drop a repository\'s emoji and the old number; role marks and other
 
   // Tint hidden: the title is left as it is.
   await $.command.run({ command: 'mod_tint', args: 'off' } as never)
-  expect(await title($, '🟧1️⃣ Mod ideas')).toBeUndefined()
+  expect(await title($, '🟧1️⃣ Mod ideas')).toBe('🟧1️⃣ Mod ideas')
 })
 
 test('the rename note drops the repo emoji and the old number, and adds none', async ($, on) => {

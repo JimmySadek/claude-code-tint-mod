@@ -132,9 +132,10 @@ const STRIP_W = 1600
 const STRIP_H = 40
 // How wide the docked strip asks to be; the prompt bar clips what it cannot fit.
 const DOCK_W = 900
-// The desktop app ignores a mod's sessionTitle, so the mod asks Claude to rename
-// through the app's own tool: at your 2nd prompt (the app's first title exists
-// by then), then every 5th, and once when a title starts with a repo's emoji (see titleNudge).
+// On the desktop the mod never sets the title (see titled): the app would put it over the one it
+// made. It asks Claude to rename through the app's own tool instead: at your 2nd prompt (the
+// app's first title exists by then), then every 5th, and once when a title starts with a repo's
+// emoji (see titleNudge).
 // Claude renames only when the title lacks its shape or the main topic changed.
 const TITLE_TOOL = 'mcp__ccd_session_mgmt__set_session_title'
 const TITLE_FIRST = 2
@@ -919,13 +920,20 @@ function splitTitle(title: string, own: string): { mark: string | null; dropped:
 }
 
 // The terminal title: a repository's emoji dropped, a role mark kept. With the tint hidden the
-// title is left as it is.
+// title is left as it is. undefined leaves the title alone: on the desktop always (the app
+// names the session and syncs a hook's title over its own, so titleNudge asks Claude instead;
+// its session id is known before the surface joins), with no words to keep (never the bare
+// folder name), and when nothing would change.
 async function titled($: EngineInterface, current: string | undefined): Promise<string | undefined> {
   const key = await read($, repo)
   if (key === null || (await read($, isHidden))) return undefined
+  const surfaces = await $.session.surfaces().catch((): readonly RenderSurface[] => [])
+  if (surfaces.includes('desktop') || (await hostOf($)) !== null) return undefined
   const { mark: kept, rest } = splitTitle(current ?? '', await markOf($, key))
-  const words = (await read($, name)) ?? (rest || key)
-  return kept ? `${kept} ${words}` : words
+  const words = (await read($, name)) ?? rest
+  if (!words) return undefined
+  const title = kept ? `${kept} ${words}` : words
+  return title === current?.trim() ? undefined : title
 }
 
 // The title the last clean-up note was about, so a title Claude cannot rename is asked about once.

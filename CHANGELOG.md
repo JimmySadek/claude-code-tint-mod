@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.13.4] - 2026-10-21
+
+### Fixed
+- **A desktop session's title is no longer replaced by its folder name.** A one-repo session started as `Global rules · Direct pushback` showed `one-repo` after a message sent mid-turn. The hook returned a title on every prompt and at session start, and with no title yet it fell back to the bare folder name (`one-repo`). Up to 1.13.3 the desktop app ignored a hook's title; it now puts it over the one it made. On the desktop (the surface, or the app's session id when the surface has not joined yet) the hook now never sets a title: the hidden note asks Claude to rename, as before. In the terminal it sets one only when that changes something (a repository's emoji dropped, or the window name), and never the bare folder name. Three new checks in `tests/titles.test.ts`: 1.13.3 fails all three (it returns `lab-notes`), this one passes. The transcript of the session above shows the hook writing `one-repo` from its start until Claude renamed it. Tested in the test suite only, not yet in the real app.
+
 ## [1.13.3] - 2026-10-19
 
 ### Fixed

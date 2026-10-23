@@ -236,7 +236,14 @@ test('desktop band: Color the app runs the same install as /mod_tint desktop go'
   const out = desktopWorld(on, files)
   await $.session.start(START)
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
+  // It quits Claude, so the first click only asks; Cancel goes back with nothing run.
   await ui.press({ key: 'desktop-install' })
+  expect(out.runs.some(argv => argv[0] === 'open')).toBe(false)
+  expect(await ui.find({ key: 'desktop-install' })).toBeUndefined()
+  await ui.press({ key: 'desktop-restart-cancel' })
+  expect(out.runs.some(argv => argv[0] === 'open')).toBe(false)
+  await ui.press({ key: 'desktop-install' })
+  await ui.press({ key: 'desktop-restart' })
   expect(out.runs.some(argv => argv[0] === 'open' && argv.includes('Terminal'))).toBe(true)
   expect(files.get(`${DIR}/install-desktop.command`)).toContain('--restart')
   expect(out.toasts).toContain('tint: Terminal is opening. When Claude asks "Claude is still working…", click Quit anyway.')
@@ -338,6 +345,8 @@ test('desktop band: colors chosen after the snippet was saved ride in the band; 
   expect((await carried(again)).repos['lab-notes'][0]).toBe('#14B8A6')
   expect((await carried(again)).at).toBeGreaterThan(pickedAt)
   await again.press({ key: 'desktop-colors' })
+  expect(out.runs.some(argv => argv[0] === 'open' && argv.includes('Terminal'))).toBe(false)
+  await again.press({ key: 'desktop-restart' })
   expect(out.runs.some(argv => argv[0] === 'open' && argv.includes('Terminal'))).toBe(true)
   expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('"lab-notes":["#14B8A6","🧪"]')
   await again.unmount()
@@ -354,7 +363,7 @@ const ROOMS_TEMPLATE = 'const REPOS = /*REPOS*/{}/*REPOS*/ const ROOMS = /*ROOMS
 const savedWith = (rooms: Record<string, string>) =>
   `const REPOS = /*REPOS*/{"lab-notes":["#259F3E","🧪"]}/*REPOS*/ const ROOMS = /*ROOMS*/${JSON.stringify(rooms)}/*ROOMS*/ // tint`
 
-test('desktop band: a session\'s folder, by the app\'s id for it, rides in the band and is saved with the script; Later waits for the next room', async ($, on) => {
+test('desktop band: a session\'s folder, by the app\'s id for it, rides in the band, draws no row of its own, and is saved with the next real Update', async ($, on) => {
   const files = new Map<string, string>([
     [`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' }, 'no-color': { icon: '🦊' } })],
     // A room of a repo with no color yet is noted but never drawn or saved.
@@ -367,31 +376,51 @@ test('desktop band: a session\'s folder, by the app\'s id for it, rides in the b
   // Noted once, newest last, the others kept.
   expect(JSON.parse(files.get(`${DIR}/rooms.json`)!)).toEqual({ local_old: 'lab-notes', local_grey: 'no-color', local_room1: 'lab-notes' })
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'desktop', ...BAND })
-  // Not the script's update. Until Done the script may not run, so rooms alone bring no offer of
-  // their own (only it can tell a work room from another folder), but the reminder carries them.
+  // Not the script's update. Until Done the script may not run to hide a band, so rooms alone are
+  // carried only by the reminder.
   expect(await ui.find({ key: 'desktop-update' })).toBeUndefined()
   expect(await ui.find({ key: 'desktop-done' })).toBeDefined()
-  // Only the room the saved script lacks; "fresh": none put off yet.
+  // Only the room the saved script lacks, and no "fresh" list: a new room never keeps the band up.
   expect((await carried(ui)).rooms).toEqual({ local_room1: 'lab-notes' })
-  expect((await carried(ui)).fresh).toEqual({ local_room1: 'lab-notes' })
+  expect((await carried(ui)).fresh).toBeUndefined()
   await ui.press({ key: 'desktop-done' })
   await out.clock.settle()
-  // The script runs: the offer, which it hides unless a work room from another folder waits.
-  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  // The script runs: rooms alone draw no row and no button (1.13.5), only the picture, tagged so
+  // the running script hides its band.
+  expect(await ui.find({ key: 'desktop-colors' })).toBeUndefined()
+  expect(await ui.find({ key: 'desktop-colors-later' })).toBeUndefined()
   expect((await carried(ui)).band).toBe('colors')
 
-  // Later: away until another room starts, and the room put off keeps no band up after that.
-  await ui.press({ key: 'desktop-colors-later' })
-  expect(await ui.find({ key: 'desktop-colors' })).toBeUndefined()
+  // Another work room: still no row; both ride in the picture.
   files.set(`${DIR}/rooms.json`, JSON.stringify({ ...JSON.parse(files.get(`${DIR}/rooms.json`)!), local_room2: 'lab-notes' }))
   await out.clock.advance(30_000)
   await out.clock.settle()
-  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  expect(await ui.find({ key: 'desktop-colors' })).toBeUndefined()
   expect((await carried(ui)).rooms).toEqual({ local_room1: 'lab-notes', local_room2: 'lab-notes' })
-  expect((await carried(ui)).fresh).toEqual({ local_room2: 'lab-notes' })
+  expect((await carried(ui)).fresh).toBeUndefined()
+  expect((await carried(ui)).band).toBe('colors')
 
-  // Update saves every room whose repo has a color into the script.
+  // A real color change brings the offer, and its Update saves every room whose repo has a color.
+  files.set(`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#14B8A6' }, 'no-color': { icon: '🦊' } }))
+  await out.clock.advance(30_000)
+  await out.clock.settle()
+  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  // A click that only asked does not carry over: the offer goes, comes back, and starts unasked.
   await ui.press({ key: 'desktop-colors' })
+  expect(await ui.find({ key: 'desktop-restart' })).toBeDefined()
+  files.set(`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#259F3E' }, 'no-color': { icon: '🦊' } }))
+  files.set(`${DIR}/rooms.json`, JSON.stringify({ local_old: 'lab-notes' }))
+  await out.clock.advance(30_000)
+  await out.clock.settle()
+  expect(await ui.find({ key: 'desktop-restart' })).toBeUndefined()
+  files.set(`${DIR}/repos.json`, JSON.stringify({ 'lab-notes': { icon: '🧪', color: '#14B8A6' }, 'no-color': { icon: '🦊' } }))
+  files.set(`${DIR}/rooms.json`, JSON.stringify({ local_old: 'lab-notes', local_grey: 'no-color', local_room1: 'lab-notes', local_room2: 'lab-notes' }))
+  await out.clock.advance(30_000)
+  await out.clock.settle()
+  expect(await ui.find({ key: 'desktop-restart' })).toBeUndefined()
+  expect(await ui.find({ key: 'desktop-colors' })).toBeDefined()
+  await ui.press({ key: 'desktop-colors' })
+  await ui.press({ key: 'desktop-restart' })
   expect(files.get(`${DIR}/desktop-snippet.js`)).toContain('/*ROOMS*/{"local_old":"lab-notes","local_room1":"lab-notes","local_room2":"lab-notes"}/*ROOMS*/')
   await ui.unmount()
 

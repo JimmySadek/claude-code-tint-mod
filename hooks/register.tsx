@@ -155,6 +155,9 @@ const prompts = atom({ plugin: 'tint', key: 'prompts' } as const, 0)
 // remind how to turn them on after an app start, or keep colors chosen since the snippet was
 // saved. null shows nothing.
 const desktopOffer = atom({ plugin: 'tint', key: 'desktopOffer' } as const, null)
+// The offer whose button that quits and opens Claude was pressed once in this window: the band
+// then asks again, so a stray click stops nothing that is still working. null asks nothing.
+const restartAsked = atom({ plugin: 'tint', key: 'restartAsked' } as const, null)
 // When this window first showed the turn-on reminder (clock ms), for its countdown.
 const remindSince = atom({ plugin: 'tint', key: 'remindSince' } as const, null)
 // A newer tint release than the one running, when auto-update is off; null shows nothing.
@@ -522,7 +525,7 @@ async function savedSnippet($: EngineInterface): Promise<string | null> {
 // declined the install, put off one script version, or turned the colors on after one app start.
 // snoozedFor/snoozedAt: the reminder counted down unanswered for that app start, at that clock time.
 // colorsLater/colorsLaterFor: put off saving one set of repo colors (colorsMark) for one app start.
-// roomsLater: the rooms waiting to be saved when that was put off, so they keep no band up.
+// roomsLater: written up to 1.13.4 (rooms put off with Later); no longer read.
 type DesktopState = {
   isInstallDeclined?: boolean; updateLater?: string; doneFor?: string; snoozedFor?: string; snoozedAt?: number
   colorsLater?: string; colorsLaterFor?: string; roomsLater?: string[]
@@ -597,15 +600,15 @@ async function refreshOffer($: EngineInterface): Promise<void> {
   // A repo whose color or emoji the saved snippet does not have yet (a repo it never had counts).
   const repos = desktopRepos(await readChoices($))
   const kept = saved === null ? {} : savedColors(saved)
-  // Or a desktop session the saved snippet has no folder for (see rooms.json). The running script
-  // hides the band unless one of them is a work room from another folder (see desktop/tint.js).
+  // Or a desktop session the saved snippet has no folder for (see rooms.json). Rooms alone never
+  // show a row of their own ('rooms', 1.13.5): the band only carries them to the running script.
   const rooms = desktopRooms(await readRooms($), repos)
   const isColorStale = Object.entries(repos).some(([shown, [hex, mark]]) => kept[shown]?.[0] !== hex || kept[shown]?.[1] !== mark)
   const isStale = isColorStale || Object.keys(newRooms(rooms, saved)).length > 0
   const isDue = script !== null && saved !== null && isStale
   const thisStart = isDue ? await appStarted($) : null
   const isPutOff = state.colorsLater === colorsMark(repos, rooms) && state.colorsLaterFor === (thisStart ?? undefined)
-  let offer: 'install' | 'update' | 'remind' | 'colors' | null = null
+  let offer: 'install' | 'update' | 'remind' | 'colors' | 'rooms' | null = null
   if (script === null) offer = null
   else if (saved === null) offer = state.isInstallDeclined ? null : 'install'
   else if (scriptMark(saved) !== scriptMark(script) && state.updateLater !== scriptMark(script)) offer = 'update'
@@ -613,14 +616,19 @@ async function refreshOffer($: EngineInterface): Promise<void> {
     const started = await appStarted($)
     const isSnoozed = started !== null && state.snoozedFor === started && state.snoozedAt !== undefined &&
       (await $.clock.now()) - state.snoozedAt < REMIND_AGAIN_MS
-    // Rooms alone bring the offer only once you said the script runs this app start (Done): it
-    // hides the band unless a work room from another folder waits, and only it can tell.
+    // Rooms alone are carried only once you said the script runs this app start (Done): the band
+    // that carries them is hidden by that script, and without it would show empty.
     const isShown = isColorStale || (started !== null && state.doneFor === started)
-    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind' : isDue && !isPutOff && isShown ? 'colors' : null
+    offer = started !== null && state.doneFor !== started && !isSnoozed ? 'remind'
+      : isDue && !isPutOff && isShown ? (isColorStale ? 'colors' : 'rooms') : null
   }
   // Written only when they change: each write draws the band again.
   if ((await read($, isColorsDue)) !== isDue) await update($, isColorsDue, () => isDue)
-  if ((await read($, desktopOffer)) !== offer) await update($, desktopOffer, () => offer)
+  if ((await read($, desktopOffer)) !== offer) {
+    await update($, desktopOffer, () => offer)
+    // A click that only asked belongs to the offer it was for: a later offer starts unasked.
+    await update($, restartAsked, () => null)
+  }
   if (offer !== 'remind' && (await read($, newVersion)) === null) {
     remindDrawn = false
     await update($, remindSince, () => null)
@@ -829,13 +837,10 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
   const seen = JSON.stringify(repos)
   if (seen !== liveRead.repos) liveRead = { repos: seen, at: await $.clock.now() }
   // Only the rooms the saved snippet lacks (it has the others, see rooms.json), the newest
-  // LABEL_ROOMS; "fresh": those not put off with Later this app start, the only ones that may keep
-  // the band up (see desktop/tint.js).
+  // LABEL_ROOMS. They never keep the band up: the label already draws them, and they are saved
+  // with the next real Update (1.13.5; up to 1.13.4 a "fresh" list kept the band on screen).
   const rooms = Object.fromEntries(Object.entries(newRooms(desktopRooms(await readRooms($), repos), await savedSnippet($))).slice(-LABEL_ROOMS))
-  const state = Object.keys(rooms).length > 0 ? await desktopState($) : {}
-  const putOff = new Set(state.colorsLaterFor !== undefined && state.colorsLaterFor === (await appStarted($)) ? state.roomsLater ?? [] : [])
-  const fresh = Object.fromEntries(Object.entries(rooms).filter(([host]) => !putOff.has(host)))
-  const tag = LIVE_TAG + JSON.stringify({ repos, ...(Object.keys(rooms).length > 0 ? { rooms, fresh } : {}), window: [key, (await read($, number)) ?? 1], at: liveRead.at })
+  const tag = LIVE_TAG + JSON.stringify({ repos, ...(Object.keys(rooms).length > 0 ? { rooms } : {}), window: [key, (await read($, number)) ?? 1], at: liveRead.at })
   if ((await read($, liveColors)) !== tag) {
     await update($, liveColors, () => tag)
     // A color or emoji just chosen: the desktop band carries it now, not at the next heartbeat.
@@ -1489,10 +1494,10 @@ async function installDesktop($: EngineInterface, how: 'go' | 'line'): Promise<{
 async function bandTick($: EngineInterface): Promise<void> {
   const offer = await read($, desktopOffer)
   const fresh = await read($, newVersion)
-  if ((offer === null || offer === 'colors') && fresh === null) return
+  if ((offer === null || offer === 'colors' || offer === 'rooms') && fresh === null) return
   // On the desktop the reminder and a lone update notice count down.
   const timed = (await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop') &&
-    (offer === 'remind' || (offer === null && fresh !== null))
+    (offer === 'remind' || ((offer === null || offer === 'rooms') && fresh !== null))
   if (!timed) return
   const since = await read($, remindSince)
   const now = await $.clock.now()
@@ -1912,15 +1917,24 @@ export const register: Register = (on, options) => {
     if (offer === null && fresh === null) return next(e)
     const { Box, Text, Button, Markdown, Svg } = $.ui.resolve(e)
     const live = (await read($, isColorsDue)) ? await read($, liveColors) : null
-    const carried = live === null ? null : offer === 'colors' && fresh === null
+    const carried = live === null ? null : (offer === 'colors' || offer === 'rooms') && fresh === null
       ? LIVE_TAG + JSON.stringify({ ...JSON.parse(live.slice(LIVE_TAG.length)), band: 'colors' })
       : live
+    // Rooms alone: only the picture, which the running script reads, and no row of their own.
+    if (offer === 'rooms' && fresh === null) return carried === null ? next(e) : <Box><Svg key="tint-colors" source={LIVE_SVG} alt={carried} width={1} height={1} /></Box>
+    const shown = offer === 'rooms' ? null : offer
     const settle = async (change: DesktopState, note?: string) => {
       await saveDesktopState($, change)
+      await update($, restartAsked, () => null)
       await update($, desktopOffer, () => null)
       if (note) $.ui.toast(note)
     }
+    // Color the app and Update quit Claude: the first click only asks (see restartAsked).
+    const asked = shown !== null && shown !== 'remind' && (await read($, restartAsked)) === shown
+    const ask = async () => { await update($, restartAsked, () => shown === 'remind' ? null : shown) }
+    const unask = async () => { await update($, restartAsked, () => null) }
     const install = async () => {
+      await unask()
       await update($, desktopOffer, () => null)
       const { isOpened } = await installDesktop($, 'go')
       $.ui.toast(isOpened
@@ -1935,10 +1949,7 @@ export const register: Register = (on, options) => {
     const colorsLater = async () => {
       const repos = desktopRepos(await readChoices($))
       const rooms = desktopRooms(await readRooms($), repos)
-      await settle({
-        colorsLater: colorsMark(repos, rooms), colorsLaterFor: (await appStarted($)) ?? undefined,
-        roomsLater: Object.keys(newRooms(rooms, await savedSnippet($))),
-      })
+      await settle({ colorsLater: colorsMark(repos, rooms), colorsLaterFor: (await appStarted($)) ?? undefined })
     }
     // Each offer: a one-line title in Markdown (so the mod's name is a bold link to its page,
     // to find it again and share it), then one line per step with what to press in bold.
@@ -1966,14 +1977,16 @@ export const register: Register = (on, options) => {
         ],
       },
     }
-    const { title, steps } = offer === null ? { title: '', steps: [] } : lines[offer]
+    const { title, steps } = shown === null ? { title: '', steps: [] }
+      : asked ? { title: lines[shown].title, steps: [['⚠️ Claude quits now and stops any session that is still working. ', { bold: 'Restart' }, ' anyway?']] }
+      : lines[shown]
     const base = fill((await read($, color)) ?? autoColor((await read($, repo)) ?? '…'))
     const now = glowColor(base, 0)
     // The reminder and a lone update notice close by themselves after REMIND_MS. The minute
     // starts the first time the band is drawn here (the clock tick reads this note), so a
     // survey or a late draw costs nothing. Drawing itself never writes state, and reads no
     // clock: the band is drawn again only when what it says changes.
-    const timed = offer === 'remind' || (offer === null && fresh !== null)
+    const timed = shown === 'remind' || (shown === null && fresh !== null)
     if (timed) remindDrawn = true
     return (
       <Box flexDirection="column" borderStyle="bold" borderColor={now}>
@@ -1990,7 +2003,7 @@ export const register: Register = (on, options) => {
             </Box>
           )}
         </Box>
-        {offer !== null && (
+        {shown !== null && (
           <Box paddingX={1} paddingY={1} justifyContent="space-between" alignItems="center" gap={2}>
             <Box flexDirection="column">
               <Markdown key="desktop-title" text={title} />
@@ -2001,12 +2014,14 @@ export const register: Register = (on, options) => {
               ))}
             </Box>
             <Box gap={1} alignItems="center">
-              {offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={install} />}
-              {offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
-              {offer === 'update' && <Button key="desktop-update" label="Update" onPress={install} />}
-              {offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
-              {offer === 'colors' && <Button key="desktop-colors" label="Update" onPress={install} />}
-              {offer === 'colors' && <Button key="desktop-colors-later" label="Later" plain onPress={colorsLater} />}
+              {asked && <Button key="desktop-restart" label="Restart" onPress={install} />}
+              {asked && <Button key="desktop-restart-cancel" label="Cancel" plain onPress={unask} />}
+              {!asked && offer === 'install' && <Button key="desktop-install" label="Color the app" onPress={ask} />}
+              {!asked && offer === 'install' && <Button key="desktop-no" label="No thanks" plain onPress={() => settle({ isInstallDeclined: true }, 'tint: OK. /mod_tint desktop sets it up any time.')} />}
+              {!asked && offer === 'update' && <Button key="desktop-update" label="Update" onPress={ask} />}
+              {!asked && offer === 'update' && <Button key="desktop-later" label="Later" plain onPress={later} />}
+              {!asked && offer === 'colors' && <Button key="desktop-colors" label="Update" onPress={ask} />}
+              {!asked && offer === 'colors' && <Button key="desktop-colors-later" label="Later" plain onPress={colorsLater} />}
               {offer === 'remind' && <Button key="desktop-done" label="✅ Done" onPress={() => remindDone($)} />}
               {offer === 'remind' && <Button key="desktop-share" label="💌 Share tint" plain onPress={share} />}
             </Box>

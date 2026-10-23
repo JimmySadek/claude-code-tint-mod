@@ -13,7 +13,8 @@ declare module 'claude-code' {
       hasFrame: boolean
       isTitling: boolean
       prompts: number
-      desktopOffer: 'install' | 'update' | 'remind' | 'colors' | null
+      desktopOffer: 'install' | 'update' | 'remind' | 'colors' | 'rooms' | null
+      restartAsked: 'install' | 'update' | 'colors' | null
       remindSince: number | null
       newVersion: string | null
       showAutoHow: boolean

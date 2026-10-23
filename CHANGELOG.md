@@ -2,6 +2,14 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.13.5] - 2026-10-23
+
+### Fixed
+- **The New colors band no longer comes back with every work room.** From 1.13.1 the band stayed on screen whenever a work room from another folder started, only to save that room's emoji for after the next app start. The room already showed its emoji and color, so the band looked like an update that was not there, and a one-repo hub that starts rooms all day saw it many times. Rooms alone now draw no row and no button: the band only carries them, as the picture the running script reads, and the mod no longer sends the `"fresh"` list that kept it on screen. Also next to a new-version notice, rooms alone add no **New colors** row. New rooms are saved with the next real **Update** (a new color, or a new script). `desktop/tint.js` is unchanged, so this brings no script update and no restart: the script already saved hides the band once every open session runs the new mod (`/reload-plugins`, or the next app start). `tests/desktop.test.ts` checks that two new rooms draw no row and send no `"fresh"` list, and that a real color change still brings the offer and saves them.
+
+### Changed
+- **Buttons that quit Claude ask once more.** **Color the app** and **Update** quit and reopen the app, which stops any session still working. A first click now only asks (⚠️ Claude quits now and stops any session that is still working), with **Restart** to go ahead and **Cancel** to go back. A click that only asked belongs to that offer: when the offer goes away and comes back, it starts unasked again. `tests/desktop.test.ts` checks that one click opens nothing, that Cancel runs nothing, and that an old ask does not carry over (it fails without that reset). Tested in the test suite only, not yet in the real app. The rooms-only case next to a new-version notice is checked by reading the code only.
+
 ## [1.13.4] - 2026-10-21
 
 ### Fixed

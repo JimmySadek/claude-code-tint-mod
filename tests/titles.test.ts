@@ -134,6 +134,65 @@ test('a title that starts with a role mark or an emoji of its own keeps it', asy
   }
 })
 
+test('a hub title keeps its leading keycap number, and the note never adds one', async ($, on) => {
+  setup(on, ['desktop'], { 'lab-notes': { icon: '🧪', color: '#259F3E' } })
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
+  const note = async (title: string) => {
+    let text = ''
+    for (let i = 0; i < 5 && !text; i++) {
+      const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title } as never)
+      text = (result.additionalContext ?? []).join('\n')
+    }
+    return text
+  }
+  for (const [title, number] of [['2️⃣ CM · pricing calculator', '2️⃣'], ['🔟 One-repo · Hub', '🔟'], ['7⃣ Lab · Plain keycap', '7⃣']] as const) {
+    // A number alone is nothing to clean: no note on someone else's message.
+    const quiet = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title, source: 'sdk' } as never)
+    expect(quiet.additionalContext ?? []).toEqual([])
+    // The scheduled check keeps it in front and changes only the words.
+    const kept = await note(title)
+    expect(kept).toContain(`Keep its leading "${number}" as it is`)
+    expect(kept).toContain('never add or change a number yourself')
+    expect(kept).toContain(`"${number} <Project> · <main topic>"`)
+    expect(kept).not.toContain('Drop the')
+    expect(kept).not.toContain('💬 a side chat')
+  }
+  // A title without a number is told never to add one.
+  const plain = await note('Lab · Login bug')
+  expect(plain).toContain('Do not add an emoji or a number')
+  expect(plain).toContain('"<Project> · <main topic>"')
+  // A repo emoji after the number goes; the number stays in front.
+  const clean = ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '3️⃣ 🧪 Lab · Templates', source: 'sdk' } as never)).additionalContext ?? []).join('\n')
+  expect(clean).toContain('Keep its leading "3️⃣" as it is')
+  expect(clean).toContain('Drop the "🧪" after "3️⃣"')
+  expect(clean).toContain('(now "Lab · Templates")')
+  // A number and a role mark both stay, in that order.
+  const both = await note('4️⃣ 💬 BAM · Why 0.4?')
+  expect(both).toContain('Keep its leading "4️⃣ 💬" as it is')
+  expect(both).toContain('"4️⃣ 💬 <Project> · <main topic>"')
+  // The old keycap form (emoji, then number, no space) still loses both.
+  const old = ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🦊5️⃣ Templates 0.4', source: 'sdk' } as never)).additionalContext ?? []).join('\n')
+  expect(old).toContain('Drop the emoji and old window number')
+  expect(old).not.toContain('Keep its leading')
+  // A window name keeps the number in front.
+  await $.command.run({ command: 'mod_tint', args: 'name Pricing', ...AT_PROMPT })
+  expect(await note('2️⃣ CM · pricing calculator')).toContain('exactly "2️⃣ Pricing"')
+})
+
+test('terminal: a leading keycap number stays when the repo emoji goes or a window name is set', async ($, on) => {
+  setup(on, ['terminal'], { 'lab-notes': { icon: '🧪', color: '#259F3E' } })
+  await $.session.start({ cwd: '/work/lab-notes', surface: 'terminal', isInteractive: true })
+  const titleFor = async (title?: string) =>
+    (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title } as never)).sessionTitle
+  expect(await titleFor('2️⃣ CM · pricing calculator')).toBeUndefined()
+  expect(await titleFor('2️⃣ 🧪 CM · pricing calculator')).toBe('2️⃣ CM · pricing calculator')
+  // The old form is still not a hub number.
+  expect(await titleFor('🧪1️⃣ Templates')).toBe('Templates')
+  await $.command.run({ command: 'mod_tint', args: 'name Pricing', ...AT_PROMPT })
+  expect(await titleFor('2️⃣ CM · pricing calculator')).toBe('2️⃣ Pricing')
+  expect(await titleFor('2️⃣ Pricing')).toBeUndefined()
+})
+
 test('with the tint hidden, the note is the same: no emoji is added, a role mark stays', async ($, on) => {
   setup(on, ['desktop'])
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })

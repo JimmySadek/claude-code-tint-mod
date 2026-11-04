@@ -118,7 +118,7 @@ printf '{"allowDevTools": false}\n' > ~/Library/Application\ Support/Claude/deve
 
 - **Emoji:** the first window of a new repo asks Claude Haiku once for an emoji that fits it. Later changes happen in your window, only when you ask.
 - **Colors:** measured from the emoji on your Mac by a small Swift program. No AI.
-- **Window titles:** every few prompts, a short hidden note asks Claude to rename the window if its main topic changed. Titles carry no repo emoji (the sidebar heading shows it), but a session another one started keeps its role mark (💬 a side chat, 🔧 a helper).
+- **Window titles:** every few prompts, a short hidden note asks Claude to rename the window if its main topic changed. Titles carry no repo emoji (the sidebar heading shows it), but a session another one started keeps its role mark (💬 a side chat, 🔧 a helper), and a title that starts with a keycap number (`2️⃣ CM · pricing calculator`, a hub's fixed number) keeps it. Tint never adds a number.
 - **Web:** at most one small request every 6 hours, asking GitHub for tint's newest version number. Nothing about you is sent.
 - **Files:** only `~/.claude/window-tint/`.
 - **Session id:** in the desktop app, the app's own id for each session (one variable, `CLAUDE_CODE_HOST_SESSION_ID`), kept in `rooms.json` with the folder the session runs in, so the sidebar knows which folder a work room is from. No other variable is read besides `HOME`.

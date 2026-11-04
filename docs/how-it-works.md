@@ -38,6 +38,7 @@ A title is **Project · topic** (`Shop · Login bug`): the project in a word or 
 ```
 
 - **Role marks are kept.** The session that starts another one names it at birth: 💬 for a side chat, 🔧 for a helper. Tint cannot tell which session started which, so it keeps a title that starts with one. 💬 and 🔧 are never a repository's emoji.
+- **A hub's number is kept.** A title that starts with a keycap number, `1️⃣` to `9️⃣` or `🔟` and a space (`2️⃣ CM · pricing calculator`), keeps it in front, before any role mark. It is the session's fixed number, set outside the session (one-repo's helper numbers its hubs), not the window number. Tint never adds one, and the hidden note tells Claude to keep it and never add or change one. A window name goes after it (`2️⃣ Pricing`).
 - **A repository's emoji is dropped:** any emoji a repository in `repos.json` has or had (`icon`, `previous`, `pastIcons`, kept through `/mod_tint reset`), this repository's or another's, so a work room named with its project's emoji loses it too. A color square (shown until an emoji is picked) is dropped as well.
 - **Any other emoji is the title's own** and stays, a flag or a skin tone included (`🇩🇪 Berlin · Launch`).
 - **The form before 1.9.0** (`🧪1️⃣ Topic`, `🧪12 Topic`) loses its emoji and number. Two plain digits count only after a repository's emoji, so `🔥20 recap` stays as it is.

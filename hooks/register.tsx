@@ -885,6 +885,9 @@ async function look($: EngineInterface): Promise<{ key: string; tone: string; ki
 // desktop/tint.js), and the terminal strip and live label show it in each window.
 // No window number: a title lasts, while a number is only the window's slot while it is
 // open (it stays in the desktop ring's shade, the terminal strip and the live label).
+// A title that starts with a keycap number ("2️⃣ CM · pricing calculator") keeps it: that is a
+// hub's fixed number, set outside the session (one-repo's helper numbers its hubs). Tint never
+// adds one and the title note tells Claude never to add or change one.
 // A title that starts with a role mark keeps it: the session that starts another one names
 // it at birth (💬 a side chat, 🔧 a helper), and tint cannot know which session started which.
 // Any other emoji no repository has is the title's own and stays too. A repository's emoji
@@ -896,6 +899,10 @@ const MARK = /^(\p{Regional_Indicator}{2}|\p{Extended_Pictographic}\uFE0F?\p{Emo
 // emoji, so "🔥20 recap" stays a title of its own.
 const OLD_KEYCAP = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*[0-9]\uFE0F?\u20E3\s+/u
 const OLD_DIGITS = /^(\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)[1-9][0-9]\s+/u
+// A hub's fixed number: a keycap 1 to 9 (with or without its presentation selector) or 🔟,
+// then a space, at the very start. The old form above has an emoji before its keycap and no
+// space after the emoji, so it never matches here.
+const NUMBER = /^([1-9]\uFE0F?\u20E3|\u{1F51F}) +/u
 const SQUARE_MARKS = new Set([...Object.values(SQUARES), '⬛'])
 
 // An emoji without its presentation selector, so "🖌" and "🖌️" count as one.
@@ -905,11 +912,17 @@ let repoMarks = new Set<string>([...SQUARE_MARKS].map(bare))
 // own: this repo's mark now, in case repos.json was not read yet.
 const isRepoMark = (mark: string, own: string) => bare(mark) === bare(own) || repoMarks.has(bare(mark))
 
-// A title's own mark (💬, 🔧 or an emoji no repository has; null for none), what goes (a
-// repository's emoji or the old keycap form, at the start or right after the own mark, as in
-// "💬 🧪 Lab · Why"), and the words after both.
-function splitTitle(title: string, own: string): { mark: string | null; dropped: string | null; isOld: boolean; rest: string } {
+// A title's hub number (null for none), its own mark after that (💬, 🔧 or an emoji no
+// repository has; null for none), what goes (a repository's emoji or the old keycap form, at the
+// start or right after the number and own mark, as in "💬 🧪 Lab · Why"), and the words after.
+function splitTitle(title: string, own: string): { number: string | null; mark: string | null; dropped: string | null; isOld: boolean; rest: string } {
   let rest = title.trim()
+  let number: string | null = null
+  const hub = rest.match(NUMBER)
+  if (hub) {
+    number = hub[1]!
+    rest = rest.slice(hub[0].length).trim()
+  }
   let mark: string | null = null
   const lead = rest.match(MARK)
   if (lead && !isRepoMark(lead[1]!, own)) {
@@ -918,13 +931,16 @@ function splitTitle(title: string, own: string): { mark: string | null; dropped:
   }
   const digits = rest.match(OLD_DIGITS)
   const old = rest.match(OLD_KEYCAP) ?? (digits && isRepoMark(digits[1]!, own) ? digits : null)
-  if (old) return { mark, dropped: old[0].trim(), isOld: true, rest: rest.slice(old[0].length).trim() }
+  if (old) return { number, mark, dropped: old[0].trim(), isOld: true, rest: rest.slice(old[0].length).trim() }
   const next = rest.match(MARK)
-  if (next && isRepoMark(next[1]!, own)) return { mark, dropped: next[1]!, isOld: false, rest: rest.slice(next[0].length).trim() }
-  return { mark, dropped: null, isOld: false, rest }
+  if (next && isRepoMark(next[1]!, own)) return { number, mark, dropped: next[1]!, isOld: false, rest: rest.slice(next[0].length).trim() }
+  return { number, mark, dropped: null, isOld: false, rest }
 }
 
-// The terminal title: a repository's emoji dropped, a role mark kept. With the tint hidden the
+// What a title keeps in front of its words: the hub number, then the own mark ("" for neither).
+const headOf = (number: string | null, mark: string | null) => [number, mark].filter(Boolean).join(' ')
+
+// The terminal title: a repository's emoji dropped, a hub number and a role mark kept. With the tint hidden the
 // title is left as it is. undefined leaves the title alone: on the desktop always (the app
 // names the session and syncs a hook's title over its own, so titleNudge asks Claude instead;
 // its session id is known before the surface joins), with no words to keep (never the bare
@@ -934,10 +950,11 @@ async function titled($: EngineInterface, current: string | undefined): Promise<
   if (key === null || (await read($, isHidden))) return undefined
   const surfaces = await $.session.surfaces().catch((): readonly RenderSurface[] => [])
   if (surfaces.includes('desktop') || (await hostOf($)) !== null) return undefined
-  const { mark: kept, rest } = splitTitle(current ?? '', await markOf($, key))
+  const { number, mark: kept, rest } = splitTitle(current ?? '', await markOf($, key))
   const words = (await read($, name)) ?? rest
   if (!words) return undefined
-  const title = kept ? `${kept} ${words}` : words
+  const head = headOf(number, kept)
+  const title = head ? `${head} ${words}` : words
   return title === current?.trim() ? undefined : title
 }
 
@@ -960,22 +977,28 @@ async function titleNudge($: EngineInterface, current: string | undefined, isOwn
   const key = await read($, repo)
   if (key === null) return undefined
   const ownMark = await markOf($, key)
-  const { mark: kept, dropped, isOld, rest } = splitTitle(current ?? '', ownMark)
+  const { number, mark: kept, dropped, isOld, rest } = splitTitle(current ?? '', ownMark)
   const hasRepoMark = dropped !== null
   const isDue = isOwn && count >= TITLE_FIRST && (count - TITLE_FIRST) % TITLE_EVERY === 0
   const isStale = hasRepoMark && current !== filledFor
   if (!isDue && !isStale) return undefined
   if (isStale) filledFor = current ?? null
-  const mark = kept !== null ? `${kept} ` : ''
+  const head = headOf(number, kept)
+  const mark = head ? `${head} ` : ''
   const own = await read($, name)
   // With a window name the words are the name, so the note never says to keep the old ones.
   const now = current ? `"${current}"` : 'not set yet'
   const shape = 'A title is "Project · topic": the project this session is about in a word or two (a product, client or repository), " · ", then its main thread in 2 to 4 words, a noun phrase. No repository emoji (the sidebar shows it once, on the project heading), no status words (approved, read-only, done, redo), no dates, no window number.'
-  const keepLine = kept !== null
-    ? `Keep its leading "${kept}" as it is (the session that started this one may have chosen it: 💬 a side chat, 🔧 a helper)${hasRepoMark || own ? '.' : ` and change only the words after it (now "${rest}").`}`
+  // A hub number is the session's fixed number, not a window number: kept, never added or changed.
+  const why = [
+    number !== null ? `${kept !== null ? `"${number}" is` : 'it is'} this session's fixed number, set outside this session, not a window number; never add or change a number yourself` : null,
+    kept !== null ? `${number !== null ? `"${kept}" is ` : ''}the mark the session that started this one may have chosen: 💬 a side chat, 🔧 a helper` : null,
+  ].filter(Boolean).join('; ')
+  const keepLine = head
+    ? `Keep its leading "${head}" as it is (${why})${hasRepoMark || own ? '.' : ` and change only the words after it (now "${rest}").`}`
     : null
   const dropLine = hasRepoMark
-    ? `Drop ${isOld ? 'the emoji and old window number' : `the ${kept !== null ? '' : 'leading '}"${dropped}"`} ${kept !== null ? `after "${kept}"` : 'at its start'}${own ? '' : ` and keep the words (now "${rest}")`}; add no other emoji.`
+    ? `Drop ${isOld ? 'the emoji and old window number' : `the ${head ? '' : 'leading '}"${dropped}"`} ${head ? `after "${head}"` : 'at its start'}${own ? '' : ` and keep the words (now "${rest}")`}; add no other emoji.`
     : null
   const markLine = [keepLine, dropLine].filter(Boolean).join(' ') || 'Do not add an emoji or a number.'
   const target = own

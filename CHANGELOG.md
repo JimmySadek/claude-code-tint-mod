@@ -2,6 +2,11 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [1.14.0] - 2026-11-04
+
+### Changed
+- **A title that starts with a keycap number keeps it.** A hub can now carry a fixed number in front of its title, `2️⃣ CM · pricing calculator` (one-repo's helper numbers its hubs; work rooms get none). Up to 1.13.5 tint had no notion of it: the hidden title note asked for `"<Project> · <main topic>"` with nothing in front and said "Do not add an emoji or a number", so Claude could drop the number on its next rename, and a window name (`/mod_tint name`) set a terminal title without it. A leading keycap `1️⃣` to `9️⃣` (also without its presentation selector) or `🔟`, followed by a space, now stays in front, before any role mark: the note says to keep it as it is and never add or change a number, and asks for `"2️⃣ <Project> · <main topic>"` (or `"2️⃣ <window name>"`). A repository's emoji after it still goes (`2️⃣ 🧪 Lab · x` becomes `2️⃣ Lab · x`). A title without a number is still told not to add one. Tint's own window numbers stay out of titles, as since 1.9.0, and the form before 1.9.0 (`🧪1️⃣ Topic`, emoji then keycap) still loses both. Two new checks in `tests/titles.test.ts`: 1.13.5 fails both (no keep line for `2️⃣`, and the window name drops it); this one passes all 77 tests. Tested in the test suite only, not yet in the real app. No new desktop script needed.
+
 ## [1.13.5] - 2026-10-23
 
 ### Fixed

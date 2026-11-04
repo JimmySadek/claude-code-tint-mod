@@ -166,6 +166,13 @@ test('a hub title keeps its leading keycap number, and the note never adds one',
   expect(clean).toContain('Keep its leading "3️⃣" as it is')
   expect(clean).toContain('Drop the "🧪" after "3️⃣"')
   expect(clean).toContain('(now "Lab · Templates")')
+  expect(clean).toContain('The title still has that emoji after "3️⃣"')
+  expect(clean).not.toContain('Do not add a number')
+  // A work room (no number) is told not to add one, also with a role mark or an emoji to drop.
+  const room = ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🧪 Lab · Screen audit', source: 'sdk' } as never)).additionalContext ?? []).join('\n')
+  expect(room).toContain('Drop the leading "🧪"')
+  expect(room).toContain('Do not add a number.')
+  expect(await note('💬 BAM · Why 0.4?')).toContain('Do not add a number.')
   // A number and a role mark both stay, in that order.
   const both = await note('4️⃣ 💬 BAM · Why 0.4?')
   expect(both).toContain('Keep its leading "4️⃣ 💬" as it is')
@@ -191,6 +198,8 @@ test('terminal: a leading keycap number stays when the repo emoji goes or a wind
   await $.command.run({ command: 'mod_tint', args: 'name Pricing', ...AT_PROMPT })
   expect(await titleFor('2️⃣ CM · pricing calculator')).toBe('2️⃣ Pricing')
   expect(await titleFor('2️⃣ Pricing')).toBeUndefined()
+  // A title that is only the number keeps it too.
+  expect(await titleFor('2️⃣')).toBe('2️⃣ Pricing')
 })
 
 test('with the tint hidden, the note is the same: no emoji is added, a role mark stays', async ($, on) => {

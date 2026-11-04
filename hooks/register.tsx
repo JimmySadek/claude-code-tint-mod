@@ -900,9 +900,10 @@ const MARK = /^(\p{Regional_Indicator}{2}|\p{Extended_Pictographic}\uFE0F?\p{Emo
 const OLD_KEYCAP = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*[0-9]\uFE0F?\u20E3\s+/u
 const OLD_DIGITS = /^(\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)[1-9][0-9]\s+/u
 // A hub's fixed number: a keycap 1 to 9 (with or without its presentation selector) or 🔟,
-// then a space, at the very start. The old form above has an emoji before its keycap and no
-// space after the emoji, so it never matches here.
-const NUMBER = /^([1-9]\uFE0F?\u20E3|\u{1F51F}) +/u
+// at the very start, then a space or the end of the title. The old form above has an emoji
+// before its keycap, so it never matches here. 🔟 is also an emoji; at a title's start it is
+// read as a number, even if a repository picked it (none should: it reads as a number).
+const NUMBER = /^([1-9]\uFE0F?\u20E3|\u{1F51F})(?:\s+|$)/u
 const SQUARE_MARKS = new Set([...Object.values(SQUARES), '⬛'])
 
 // An emoji without its presentation selector, so "🖌" and "🖌️" count as one.
@@ -1000,14 +1001,16 @@ async function titleNudge($: EngineInterface, current: string | undefined, isOwn
   const dropLine = hasRepoMark
     ? `Drop ${isOld ? 'the emoji and old window number' : `the ${head ? '' : 'leading '}"${dropped}"`} ${head ? `after "${head}"` : 'at its start'}${own ? '' : ` and keep the words (now "${rest}")`}; add no other emoji.`
     : null
-  const markLine = [keepLine, dropLine].filter(Boolean).join(' ') || 'Do not add an emoji or a number.'
+  // A title without a number never gets one from Claude: work rooms have none.
+  const noNumber = number === null && (keepLine || dropLine) ? 'Do not add a number.' : null
+  const markLine = [keepLine, dropLine, noNumber].filter(Boolean).join(' ') || 'Do not add an emoji or a number.'
   const target = own
     ? `This window is named "${own}" (/mod_tint name), so the title should be exactly "${mark}${own}".`
     : `The title names the session's main thread, not a side task: "${mark}<Project> · <main topic>".`
   const when = own
     ? `If the title is not exactly "${mark}${own}",`
     : isStale
-    ? 'The title still starts with that emoji, so'
+    ? head ? `The title still has that emoji after "${head}", so` : 'The title still starts with that emoji, so'
     : 'If the title is not in that shape yet, or the main topic has clearly changed,'
   return [
     `[window-tint title check, from the window-tint mod] This window's title is ${now}.`,

@@ -12,7 +12,7 @@ const AT_PROMPT = { origin: { kind: 'composer' }, presentation: { isFullscreen: 
 const DIR = `${HOME}/.claude/window-tint`
 
 // With the frame option on, as after /mod_tint frame on reloads the plugin (see the frame tests in desktop.test.ts).
-test('second window of a repo gets #2, same color, and /mod_tint works', { options: { frame: true } }, async ($, on) => {
+test('second window of a repo gets slot 2 (its own shade, no number shown) and /mod_tint works', { options: { frame: true } }, async ($, on) => {
   const clock = mock.clock(on, { now: 1_000_000 })
   mock.env(on, { HOME })
 
@@ -54,8 +54,10 @@ test('second window of a repo gets #2, same color, and /mod_tint works', { optio
   // The stale #2 (seen long ago) is free again, so this window is #2.
   expect(JSON.parse(files.get(`${DIR}/windows/me.json`)!).n).toBe(2)
 
+  // The slot picks the shade only: the strip shows the repo, never a number.
   const term = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
-  expect(await term.find({ type: 'Text', text: /CLAUDE-MODS\s+2/ })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: /CLAUDE-MODS/ })).toBeDefined()
+  expect(await term.find({ type: 'Text', text: /CLAUDE-MODS\s+\d/ })).toBeUndefined()
   await term.unmount()
   // Desktop: nothing above the prompt (the app would wrap it in an empty card), and the footer
   // is the app's own: Claude desktop 2.42304 keeps only text and buttons there, so the colors
@@ -74,14 +76,13 @@ test('second window of a repo gets #2, same color, and /mod_tint works', { optio
   expect(await message.find({ type: 'Svg' })).toBeUndefined()
   await message.unmount()
 
-  await $.command.run({ command: 'mod_tint', args: 'name Backend', ...AT_PROMPT })
   await $.command.run({ command: 'mod_tint', args: 'color teal', ...AT_PROMPT })
   await $.command.run({ command: 'mod_tint', args: 'pattern waves', ...AT_PROMPT })
   expect(JSON.parse(files.get(`${DIR}/repos.json`)!)['claude-mods'].pattern).toBe('waves')
   expect(JSON.parse(files.get(`${DIR}/repos.json`)!)['claude-mods'].color).toBe('teal')
 
   const ui = await $.ui.mount({ plugin: 'tint', surface: 'terminal', ...BAND })
-  expect(await ui.find({ type: 'Text', text: /CLAUDE-MODS\s+2\s+·\s+Backend/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /CLAUDE-MODS\s+∿/ })).toBeDefined()
   await ui.press({ key: 'next' })
   await ui.unmount()
   expect(JSON.parse(files.get(`${DIR}/repos.json`)!)['claude-mods'].color).toBe('cyan')
@@ -93,15 +94,11 @@ test('second window of a repo gets #2, same color, and /mod_tint works', { optio
   // No status line under the prompt any more.
   expect(footer).toBeUndefined()
 
-  // The title gets no emoji and never the window's number: the window name, else its own words.
-  const named = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
-  expect(named.sessionTitle).toBe('Backend')
-  await $.command.run({ command: 'mod_tint', args: 'name', ...AT_PROMPT })
-  const plain = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟧1️⃣ Old work' } as never)
-  expect(plain.sessionTitle).toBe('Old work')
-  // A title that still carries the mark loses it.
-  const again = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: '🟦 Old work' } as never)
-  expect(again.sessionTitle).toBe('Old work')
+  // Tint never touches the title, whatever it carries.
+  for (const title of ['🟧1️⃣ Old work', '🟦 Old work', 'Old work']) {
+    const result = await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: title } as never)
+    expect(result.sessionTitle).toBeUndefined()
+  }
 
   // No border around your messages at first; /mod_tint frame on adds one.
   const mine = { text: 'hello', origin: { kind: 'composer' }, isExpanded: true } as never

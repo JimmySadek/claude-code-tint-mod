@@ -5,9 +5,10 @@ import type { ConfigRow, EngineInterface, FsEntry, Register, RenderSurface, Time
 // the repo is, chosen once by Claude, and a color measured from that emoji as
 // macOS draws it (Claude's own color when the emoji is dull or colorless),
 // saved in ~/.claude/window-tint/repos.json. The footer and labels show the emoji; the
-// color is for the border around your messages. Windows of the same repo get
-// numbers (1, 2, 3...), each in its own shade. The numbers are agreed through
-// small files in ~/.claude/window-tint/, which every running window can read.
+// color is for the border around your messages. Windows of the same repo each get
+// their own shade, from a hidden slot (1, 2, 3...) agreed through small files in
+// ~/.claude/window-tint/, which every running window can read. The slot is never shown.
+// Tint only tints: it never sets, suggests or checks a session's title.
 // On the desktop app, desktop/tint.js colors the whole app window from its DevTools:
 // /mod_tint desktop saves it there as a snippet, /mod_tint css copies it to paste by hand.
 
@@ -39,7 +40,7 @@ const BAR: Record<string, string> = {
 // One emoji: a pictograph, optionally joined to more with zero-width joiners.
 const EMOJI = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*$/u
 // The marks a session that starts another gives it: a side chat and a helper. Never a
-// repository's emoji, so titles keep them while they drop a repository's.
+// repository's emoji: the desktop script reads them in a title as a role, never as a repo.
 const ROLE_MARKS = new Set(['💬', '🔧'])
 // The small background call that picks a repo's identity.
 const PICK_MODEL = 'haiku'
@@ -126,31 +127,21 @@ const OWN_ORIGINS = new Set(['composer', 'bridge', 'sdk'])
 const STALE_MS = 120_000
 // Window records not seen for this long are deleted from the shared folder (ended, crashed or force-quit).
 const PRUNE_MS = 24 * 60 * 60 * 1000
-// How often a new window claims its number again when another took the same one at the same moment.
+// How often a new window claims its slot again when another took the same one at the same moment.
 const CLAIM_TRIES = 5
 const STRIP_W = 1600
 const STRIP_H = 40
 // How wide the docked strip asks to be; the prompt bar clips what it cannot fit.
 const DOCK_W = 900
-// On the desktop the mod never sets the title (see titled): the app would put it over the one it
-// made. It asks Claude to rename through the app's own tool instead: at your 2nd prompt (the
-// app's first title exists by then), then every 5th, and once when a title starts with a repo's
-// emoji (see titleNudge).
-// Claude renames only when the title lacks its shape or the main topic changed.
-const TITLE_TOOL = 'mcp__ccd_session_mgmt__set_session_title'
-const TITLE_FIRST = 2
-const TITLE_EVERY = 5
 
 const repo = atom({ plugin: 'tint', key: 'repo' } as const, null)
+// This window's slot among the repo's open windows: it picks the window's shade, never shown.
 const number = atom({ plugin: 'tint', key: 'number' } as const, null)
-const name = atom({ plugin: 'tint', key: 'name' } as const, null)
 const color = atom({ plugin: 'tint', key: 'color' } as const, null)
 const icon = atom({ plugin: 'tint', key: 'icon' } as const, null)
 const pattern = atom({ plugin: 'tint', key: 'pattern' } as const, null)
 const isHidden = atom({ plugin: 'tint', key: 'isHidden' } as const, false)
 const hasFrame = atom({ plugin: 'tint', key: 'hasFrame' } as const, false)
-const isTitling = atom({ plugin: 'tint', key: 'isTitling' } as const, true)
-const prompts = atom({ plugin: 'tint', key: 'prompts' } as const, 0)
 // What the band above the desktop prompt offers: install the desktop colors, update them,
 // remind how to turn them on after an app start, or keep colors chosen since the snippet was
 // saved. null shows nothing.
@@ -167,7 +158,8 @@ const showAutoHow = atom({ plugin: 'tint', key: 'showAutoHow' } as const, false)
 // For desktop/tint.js, the label of a 1-pixel picture in the band above the desktop prompt
 // (LIVE_TAG): `{"repos": {name: [color, emoji]}, "rooms": {id: repo}, "window": [repo, number]}`,
 // every repo's chosen look, the desktop sessions the saved snippet has no folder for yet (see
-// rooms.json) and this window's own repo and number. The saved snippet reads it on each repaint,
+// rooms.json) and this window's own repo and slot (the script ignores the slot and agrees on
+// its own, see desktop/tint.js NUMBERS). The saved snippet reads it on each repaint,
 // so a color chosen or a work room started after the snippet was saved shows at once.
 // Claude desktop 2.42304 keeps only text and buttons in the footer (SessionMode), so the picture
 // rides in the band, whenever one is drawn while isColorsDue: repos.json differs from the colors
@@ -183,16 +175,16 @@ type Window = { repo: string; n: number; seen: number; since?: number; ended?: b
 // manualColor: set by /mod_tint color, so a new emoji does not replace it.
 // folders: other names the app shows for this repo (a clone or worktree folder), for /mod_tint css.
 // previous: the look before the last emoji or color change, so "go back" is one step.
+// (A pastIcons list older versions kept for title clean-up is left in the file, unread.)
 type Look = { icon?: string; color?: string; manualColor?: boolean }
-// pastIcons: every emoji the repo had before (newest last), so titles still showing one lose it.
-type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look; pastIcons?: string[] }
+type RepoChoice = Look & { pattern?: string; frame?: boolean; folders?: string[]; previous?: Look }
 
 // The tool Claude calls to apply what the person chose (see askClaude).
 const SET_TOOL = 'mcp__tint__set'
 
 // The help, as Markdown (a command's answer is drawn as Markdown): three short tables.
 const USAGE = [
-  'Tell your windows apart: every repository has one emoji (picked once by Claude) and a color taken from it. Each window gets a number and its own shade.',
+  'Tell your windows apart: every repository has one emoji (picked once by Claude) and a color taken from it. Each window gets its own shade.',
   '',
   '**Easiest:** type `/mod_tint` alone, or say what you want in your own words (`/mod_tint new emoji`, `/mod_tint 🧪`, `/mod_tint go back`). Claude works out what you mean and asks you with a few choices.',
   '',
@@ -200,9 +192,7 @@ const USAGE = [
   '',
   '| Command | What it does |',
   '|---|---|',
-  '| `/mod_tint name Backend` | Name this window. `/mod_tint name` alone clears it. |',
   '| `/mod_tint off` · `/mod_tint on` | Hide or show the tint in this window. |',
-  '| `/mod_tint titles off` · `on` | Stop or restart Claude keeping the title on the main topic (desktop). |',
   '',
   '**Every window of this repository**',
   '',
@@ -846,13 +836,9 @@ async function applyChoice($: EngineInterface, key: string): Promise<void> {
     // A color or emoji just chosen: the desktop band carries it now, not at the next heartbeat.
     void refreshOffer($).catch(() => null)
   }
-  // Marks a title loses: a color square, and any emoji a repo has or had, this one or another
-  // (a work room named at birth with its project's emoji, or a title from before 1.12.0).
-  const every = Object.values(all).flatMap(each => [...(each.pastIcons ?? []), each.previous?.icon, each.icon])
-  repoMarks = new Set([...SQUARE_MARKS, ...every.filter((each): each is string => !!each && !ROLE_MARKS.has(each))].map(bare))
   const wanted = {
     color: choice.color ?? autoColor(key),
-    // Only one emoji: anything else saved by hand would break the titles.
+    // Only one emoji: anything else saved by hand would break the label and the desktop script.
     icon: choice.icon && isIcon(choice.icon) ? choice.icon : null,
     pattern: choice.pattern && isPattern(choice.pattern) ? choice.pattern : autoPattern(key),
   }
@@ -868,162 +854,20 @@ async function markOf($: EngineInterface, key: string): Promise<string> {
   return (await read($, icon)) ?? SQUARES[nearestName((await read($, color)) ?? autoColor(key))] ?? '⬛'
 }
 
-// What this window draws: its repo, shade, pattern and label.
+// What this window draws: its repo, shade, pattern and label. The window's slot picks its shade
+// and is never shown: the label is the repo's emoji and name only.
 async function look($: EngineInterface): Promise<{ key: string; tone: string; kind: Pattern; label: string }> {
   const key = (await read($, repo)) ?? '…'
   const n = await read($, number)
   const tone = windowShade(fill((await read($, color)) ?? autoColor(key)), n ?? 1)
   const kind = ((await read($, pattern)) ?? autoPattern(key)) as Pattern
   const mark = await markOf($, key)
-  const own = await read($, name)
-  const label = `${mark}  ${key.toUpperCase()}${n !== null ? `  ${n}` : ''}${own ? `  ·  ${own}` : ''}`
+  const label = `${mark}  ${key.toUpperCase()}`
   return { key, tone, kind, label }
 }
 
-// Titles: "Project · topic" ("Tint · Session names"), with no repository emoji. The desktop
-// sidebar groups threads under their project's heading, which shows the emoji once (see
-// desktop/tint.js), and the terminal strip and live label show it in each window.
-// No window number: a title lasts, while a number is only the window's slot while it is
-// open (it stays in the desktop ring's shade, the terminal strip and the live label).
-// A title that starts with a keycap number ("2️⃣ CM · pricing calculator") keeps it: that is a
-// hub's fixed number, set outside the session (one-repo's helper numbers its hubs). Tint never
-// adds one and the title note tells Claude never to add or change one.
-// A title that starts with a role mark keeps it: the session that starts another one names
-// it at birth (💬 a side chat, 🔧 a helper), and tint cannot know which session started which.
-// Any other emoji no repository has is the title's own and stays too. A repository's emoji
-// (any repo's, now or before) and a color square tint left before 1.12.0 are dropped.
-// A mark: one emoji (with a skin tone, joined to more), or a flag.
-const MARK = /^(\p{Regional_Indicator}{2}|\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?)*) +/u
-// The form before 1.9.0: emoji and window keycap ("🧪1️⃣ ", "🟧1️⃣ "), or from 10 on two plain
-// digits ("🧪12 "). Emoji and number are dropped. Two digits count only after a repository's
-// emoji, so "🔥20 recap" stays a title of its own.
-const OLD_KEYCAP = /^\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*[0-9]\uFE0F?\u20E3\s+/u
-const OLD_DIGITS = /^(\p{Extended_Pictographic}\uFE0F?(?:\u200D\p{Extended_Pictographic}\uFE0F?)*)[1-9][0-9]\s+/u
-// A hub's fixed number: a keycap 1 to 9 (with or without its presentation selector) or 🔟,
-// at the very start, then a space or the end of the title. The old form above has an emoji
-// before its keycap, so it never matches here. 🔟 is also an emoji; at a title's start it is
-// read as a number, even if a repository picked it (none should: it reads as a number).
-const NUMBER = /^([1-9]\uFE0F?\u20E3|\u{1F51F})(?:\s+|$)/u
-const SQUARE_MARKS = new Set([...Object.values(SQUARES), '⬛'])
-
-// An emoji without its presentation selector, so "🖌" and "🖌️" count as one.
-const bare = (mark: string) => mark.replace(/\uFE0F/gu, '')
-// Marks titles lose, bare; set from repos.json by applyChoice.
-let repoMarks = new Set<string>([...SQUARE_MARKS].map(bare))
-// own: this repo's mark now, in case repos.json was not read yet.
-const isRepoMark = (mark: string, own: string) => bare(mark) === bare(own) || repoMarks.has(bare(mark))
-
-// A title's hub number (null for none), its own mark after that (💬, 🔧 or an emoji no
-// repository has; null for none), what goes (a repository's emoji or the old keycap form, at the
-// start or right after the number and own mark, as in "💬 🧪 Lab · Why"), and the words after.
-function splitTitle(title: string, own: string): { number: string | null; mark: string | null; dropped: string | null; isOld: boolean; rest: string } {
-  let rest = title.trim()
-  let number: string | null = null
-  const hub = rest.match(NUMBER)
-  if (hub) {
-    number = hub[1]!
-    rest = rest.slice(hub[0].length).trim()
-  }
-  let mark: string | null = null
-  const lead = rest.match(MARK)
-  if (lead && !isRepoMark(lead[1]!, own)) {
-    mark = lead[1]!
-    rest = rest.slice(lead[0].length).trim()
-  }
-  const digits = rest.match(OLD_DIGITS)
-  const old = rest.match(OLD_KEYCAP) ?? (digits && isRepoMark(digits[1]!, own) ? digits : null)
-  if (old) return { number, mark, dropped: old[0].trim(), isOld: true, rest: rest.slice(old[0].length).trim() }
-  const next = rest.match(MARK)
-  if (next && isRepoMark(next[1]!, own)) return { number, mark, dropped: next[1]!, isOld: false, rest: rest.slice(next[0].length).trim() }
-  return { number, mark, dropped: null, isOld: false, rest }
-}
-
-// What a title keeps in front of its words: the hub number, then the own mark ("" for neither).
-const headOf = (number: string | null, mark: string | null) => [number, mark].filter(Boolean).join(' ')
-
-// The terminal title: a repository's emoji dropped, a hub number and a role mark kept. With the tint hidden the
-// title is left as it is. undefined leaves the title alone: on the desktop always (the app
-// names the session and syncs a hook's title over its own, so titleNudge asks Claude instead;
-// its session id is known before the surface joins), with no words to keep (never the bare
-// folder name), and when nothing would change.
-async function titled($: EngineInterface, current: string | undefined): Promise<string | undefined> {
-  const key = await read($, repo)
-  if (key === null || (await read($, isHidden))) return undefined
-  const surfaces = await $.session.surfaces().catch((): readonly RenderSurface[] => [])
-  if (surfaces.includes('desktop') || (await hostOf($)) !== null) return undefined
-  const { number, mark: kept, rest } = splitTitle(current ?? '', await markOf($, key))
-  const words = (await read($, name)) ?? rest
-  if (!words) return undefined
-  const head = headOf(number, kept)
-  const title = head ? `${head} ${words}` : words
-  return title === current?.trim() ? undefined : title
-}
-
-// The title the last clean-up note was about, so a title Claude cannot rename is asked about once.
-let filledFor: string | null = null
-
-// A hidden note asks Claude to keep the title right, in two cases:
-// - every TITLE_EVERY of your own prompts, whether it still names the main topic;
-// - once, on any prompt, when the title starts with a repository's emoji (or the old keycap
-//   form). A work room is driven by its parent's messages, so it would never reach your own
-//   prompt count.
-// Renaming stays Claude's call; a name you typed yourself is protected by the app, which asks
-// you before replacing it. Hidden or shown, the title carries no repository emoji.
-async function titleNudge($: EngineInterface, current: string | undefined, isOwn: boolean): Promise<string | undefined> {
-  const count = (await read($, prompts)) + (isOwn ? 1 : 0)
-  if (isOwn) await update($, prompts, () => count)
-  if (!(await read($, isTitling))) return undefined
-  // Only the desktop app has the rename tool.
-  if (!(await $.session.surfaces().catch((): readonly RenderSurface[] => [])).includes('desktop')) return undefined
-  const key = await read($, repo)
-  if (key === null) return undefined
-  const ownMark = await markOf($, key)
-  const { number, mark: kept, dropped, isOld, rest } = splitTitle(current ?? '', ownMark)
-  const hasRepoMark = dropped !== null
-  const isDue = isOwn && count >= TITLE_FIRST && (count - TITLE_FIRST) % TITLE_EVERY === 0
-  const isStale = hasRepoMark && current !== filledFor
-  if (!isDue && !isStale) return undefined
-  if (isStale) filledFor = current ?? null
-  const head = headOf(number, kept)
-  const mark = head ? `${head} ` : ''
-  const own = await read($, name)
-  // With a window name the words are the name, so the note never says to keep the old ones.
-  const now = current ? `"${current}"` : 'not set yet'
-  const shape = 'A title is "Project · topic": the project this session is about in a word or two (a product, client or repository), " · ", then its main thread in 2 to 4 words, a noun phrase. No repository emoji (the sidebar shows it once, on the project heading), no status words (approved, read-only, done, redo), no dates, no window number.'
-  // A hub number is the session's fixed number, not a window number: kept, never added or changed.
-  const why = [
-    number !== null ? `${kept !== null ? `"${number}" is` : 'it is'} this session's fixed number, set outside this session, not a window number; never add or change a number yourself` : null,
-    kept !== null ? `${number !== null ? `"${kept}" is ` : ''}the mark the session that started this one may have chosen: 💬 a side chat, 🔧 a helper` : null,
-  ].filter(Boolean).join('; ')
-  const keepLine = head
-    ? `Keep its leading "${head}" as it is (${why})${hasRepoMark || own ? '.' : ` and change only the words after it (now "${rest}").`}`
-    : null
-  const dropLine = hasRepoMark
-    ? `Drop ${isOld ? 'the emoji and old window number' : `the ${head ? '' : 'leading '}"${dropped}"`} ${head ? `after "${head}"` : 'at its start'}${own ? '' : ` and keep the words (now "${rest}")`}; add no other emoji.`
-    : null
-  // A title without a number never gets one from Claude: work rooms have none.
-  const noNumber = number === null && (keepLine || dropLine) ? 'Do not add a number.' : null
-  const markLine = [keepLine, dropLine, noNumber].filter(Boolean).join(' ') || 'Do not add an emoji or a number.'
-  const target = own
-    ? `This window is named "${own}" (/mod_tint name), so the title should be exactly "${mark}${own}".`
-    : `The title names the session's main thread, not a side task: "${mark}<Project> · <main topic>".`
-  const when = own
-    ? `If the title is not exactly "${mark}${own}",`
-    : isStale
-    ? head ? `The title still has that emoji after "${head}", so` : 'The title still starts with that emoji, so'
-    : 'If the title is not in that shape yet, or the main topic has clearly changed,'
-  return [
-    `[window-tint title check, from the window-tint mod] This window's title is ${now}.`,
-    shape,
-    markLine,
-    target,
-    `${when} call ${TITLE_TOOL} with session_id "self" and the new title (load it with ToolSearch first if it is deferred).`,
-    'If the title still fits, do nothing. Do not mention this note.',
-  ].join(' ')
-}
-
-// No status line under the prompt: the window title, the desktop tint and the terminal
-// strip already show the repo and number. Clears, once at start, a line an older version left.
+// No status line under the prompt: the desktop tint and the terminal strip already show the
+// repo. Clears, once at start, a line an older version left.
 async function clearStatus($: EngineInterface): Promise<void> {
   $.ui.status(undefined)
 }
@@ -1159,22 +1003,13 @@ async function iconColor($: EngineInterface, key: string, emoji: string): Promis
   return (await readChoices($))[key]?.manualColor === true ? null : await emojiColor($, emoji)
 }
 
-// The repo's past emoji once its emoji becomes `next` (unchanged when it stays the same).
-const PAST_ICONS = 12
-function pastIconsAfter(mine: RepoChoice, next: string | undefined): string[] | undefined {
-  if (next === undefined || !mine.icon || next === mine.icon) return mine.pastIcons
-  return [...(mine.pastIcons ?? []).filter(each => each !== next && each !== mine.icon), mine.icon].slice(-PAST_ICONS)
-}
-
 // A new emoji or color for the repo; the look before it is kept as `previous`.
 async function saveLook($: EngineInterface, key: string, change: Look): Promise<void> {
   const mine = (await readChoices($))[key] ?? {}
   const isNew = (change.icon !== undefined && change.icon !== mine.icon) ||
     (change.color !== undefined && change.color !== mine.color)
   const previous: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
-  const pastIcons = pastIconsAfter(mine, change.icon)
-  const kept = { ...change, ...(pastIcons ? { pastIcons } : {}) }
-  await saveChoice($, key, isNew && (mine.icon || mine.color) ? { ...kept, previous } : kept)
+  await saveChoice($, key, isNew && (mine.icon || mine.color) ? { ...change, previous } : change)
   await applyChoice($, key)
 }
 
@@ -1185,8 +1020,7 @@ async function undoLook($: EngineInterface, key: string): Promise<Look | null> {
   const back = mine.previous
   if (!back) return null
   const now: Look = { icon: mine.icon, color: mine.color, manualColor: mine.manualColor }
-  const pastIcons = pastIconsAfter(mine, back.icon)
-  await saveChoice($, key, { icon: back.icon, color: back.color, manualColor: back.manualColor, previous: now, ...(pastIcons ? { pastIcons } : {}) })
+  await saveChoice($, key, { icon: back.icon, color: back.color, manualColor: back.manualColor, previous: now })
   await applyChoice($, key)
   return back
 }
@@ -1199,7 +1033,6 @@ const lookText = (look: Look) =>
 async function lookNow($: EngineInterface, key: string): Promise<string> {
   const all = await readChoices($)
   const mine = all[key] ?? {}
-  const own = await read($, name)
   const others = Object.entries(all)
     .filter(([other, choice]) => other !== key && (choice.icon || choice.color))
     .map(([other, choice]) => `  - ${other}: ${lookText(choice)}`)
@@ -1207,7 +1040,7 @@ async function lookNow($: EngineInterface, key: string): Promise<string> {
     `Repository: ${key}`,
     `- Its look, shared by every window of it: ${lookText({ ...mine, color: (await read($, color)) ?? autoColor(key) })}${mine.manualColor ? ' (color chosen by the person)' : ''}`,
     `- Look before the last change: ${mine.previous ? lookText(mine.previous) : 'none saved'}`,
-    `- This window: number ${(await read($, number)) ?? '?'}, name ${own ? `"${own}"` : 'none'}, tint ${(await read($, isHidden)) ? 'hidden' : 'shown'}, border around the person's messages ${(await read($, hasFrame)) ? 'on' : 'off'}, title upkeep ${(await read($, isTitling)) ? 'on' : 'off'}`,
+    `- This window: tint ${(await read($, isHidden)) ? 'hidden' : 'shown'}, border around the person's messages ${(await read($, hasFrame)) ? 'on' : 'off'}`,
     others.length ? `- Other repositories (keep clearly different from these):\n${others.join('\n')}` : '- No other repository has a look yet.',
   ].join('\n')
 }
@@ -1218,17 +1051,18 @@ const ASK_REPICK = [
 ].join(' ')
 const ASK_INTENT = [
   'Work out what they most likely want from those words and the looks below.',
-  'A lone emoji most likely means a new emoji for the repository; a color word, a new color; "back", "undo" or "old", the look before the last change; other words, a name for this window.',
+  'A lone emoji most likely means a new emoji for the repository; a color word, a new color; "back", "undo" or "old", the look before the last change; other words, the look change they describe (a pattern, the border, hiding the tint).',
   'When the words could mean two things, offer both.',
+  'Tint does not name or number windows or sessions: if they ask for a name, a title or a number, say so in one line and change nothing.',
 ].join(' ')
 const ASK_OPEN = [
   'They did not say what to change. Offer the 3 or 4 changes most likely wanted now, for example:',
-  'a new emoji for the repository, the look before the last change (when there is one), a name for this window, or hiding the tint in this window.',
+  'a new emoji for the repository, the look before the last change (when there is one), a new color, or hiding the tint in this window.',
   'When the chosen change needs a second choice (which emoji), ask that next.',
 ].join(' ')
 const ASK_HOW = [
   'How to answer:',
-  '1. Ask with AskUserQuestion, one question with 2 to 4 options, your best guess first with "(Recommended)" at the end of its label. Show the emoji in each label and say the color in words ("🧪 Test tube · green"), with one short line in the description on why it fits. Never ask the person to type a command or a hex code; a detail you lack (a window name) they type under Other.',
+  '1. Ask with AskUserQuestion, one question with 2 to 4 options, your best guess first with "(Recommended)" at the end of its label. Show the emoji in each label and say the color in words ("🧪 Test tube · green"), with one short line in the description on why it fits. Never ask the person to type a command or a hex code; a detail you lack they type under Other.',
   `2. Apply the answer with the tool ${SET_TOOL} (load it with ToolSearch "select:${SET_TOOL}" first if it is deferred). For a new emoji pass only \`icon\`: tint takes the color from the emoji as macOS draws it. Pass \`color\` only when the person chose a color. Never edit tint's files yourself.`,
   '3. If they dismiss the question or keep what they have, change nothing.',
   '4. End with one short line saying what changed.',
@@ -1556,7 +1390,7 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
   // A refused registration must never cost the band and the timers below.
   await $.command.register({
     name: 'mod_tint',
-    description: 'This window\'s emoji, color and name. Say what you want in your own words.',
+    description: 'This repository\'s emoji and color, and this window\'s tint. Say what you want in your own words.',
     argumentHint: 'say it your way, e.g. "new emoji", "make it green", "go back"',
     immediate: true,
   }).catch(() => null)
@@ -1565,16 +1399,14 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
     description: [
       'Changes how tint marks this repository and this window, after the person chose it (ask first with AskUserQuestion).',
       'icon and color are shared by every window of the repository; a new icon alone brings its own color, measured from the emoji.',
-      'name, hidden and titles are for this window only. undo goes back to the look before the last change.',
+      'hidden is for this window only. undo goes back to the look before the last change.',
     ].join(' '),
     inputSchema: {
       type: 'object',
       properties: {
         icon: { type: 'string', description: 'One emoji for the repository.' },
         color: { type: 'string', description: `The repository's color: #RRGGBB or one of ${NAMES.join(', ')}. Only when the person chose a color.` },
-        name: { type: 'string', description: 'A name for this window; an empty string clears it.' },
         hidden: { type: 'boolean', description: 'Hide (true) or show (false) the tint in this window.' },
-        titles: { type: 'boolean', description: 'Whether Claude keeps this window\'s title on its main topic.' },
         frame: { type: 'boolean', description: 'A colored border around the person\'s own messages, for the repository.' },
         pattern: { type: 'string', enum: [...PATTERNS], description: 'The terminal strip\'s pattern.' },
         undo: { type: 'boolean', description: 'Go back to the emoji and color before the last change.' },
@@ -1637,7 +1469,7 @@ async function startUp($: EngineInterface, isInteractive: boolean): Promise<void
 }
 
 type SetInput = {
-  icon?: string; color?: string; name?: string; hidden?: boolean; titles?: boolean; frame?: boolean; pattern?: string; undo?: boolean
+  icon?: string; color?: string; hidden?: boolean; frame?: boolean; pattern?: string; undo?: boolean
 }
 
 // What SET_TOOL does with what the person chose.
@@ -1662,18 +1494,9 @@ async function setLook($: EngineInterface, input: SetInput): Promise<{ result: s
     await saveLook($, key, change)
     done.push(`${key} is now ${lookText((await readChoices($))[key] ?? {})}.`)
   }
-  if (input.name !== undefined) {
-    const wanted = input.name.trim()
-    await update($, name, () => wanted || null)
-    done.push(wanted ? `This window is named "${wanted}".` : 'Window name cleared.')
-  }
   if (input.hidden !== undefined) {
     await update($, isHidden, () => input.hidden === true)
     done.push(input.hidden ? 'Tint hidden in this window.' : 'Tint shown in this window.')
-  }
-  if (input.titles !== undefined) {
-    await update($, isTitling, () => input.titles === true)
-    done.push(input.titles ? 'Claude keeps this window\'s title on its main topic.' : 'Claude no longer renames this window.')
   }
   if (input.frame !== undefined || input.pattern !== undefined) {
     await saveChoice($, key, { ...(input.frame !== undefined ? { frame: input.frame } : {}), ...(input.pattern ? { pattern: input.pattern } : {}) })
@@ -1683,7 +1506,7 @@ async function setLook($: EngineInterface, input: SetInput): Promise<{ result: s
     if (input.pattern) done.push(`Pattern is now ${input.pattern}.`)
   }
   if (done.length === 0) return { result: 'Nothing changed: give at least one field.' }
-  // Only repo-wide changes reach the other windows; a name or hide is this window's alone.
+  // Only repo-wide changes reach the other windows; a hide is this window's alone.
   const isShared = input.undo || icon !== undefined || asked !== undefined || input.frame !== undefined || input.pattern !== undefined
   return { result: isShared ? `${done.join(' ')} Other windows of the repository follow within 30 seconds.` : done.join(' ') }
 }
@@ -1710,16 +1533,6 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     await update($, isHidden, () => verb === 'off')
     return { text: verb === 'off' ? 'Label, strip and border hidden. /mod_tint on brings them back.' : 'Label, strip and border shown.' }
   }
-  if (verb === 'titles' || verb === 'title') {
-    const wanted = rest.toLowerCase()
-    if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
-    await update($, isTitling, () => wanted === 'on')
-    return {
-      text: wanted === 'on'
-        ? `Claude checks this window's title every ${TITLE_EVERY} prompts and renames it when the main topic changes.`
-        : 'Claude no longer renames this window. /mod_tint titles on brings it back.',
-    }
-  }
   if (verb === 'frame') {
     const wanted = rest.toLowerCase()
     if (wanted !== 'on' && wanted !== 'off') return await ask('intent')
@@ -1732,12 +1545,7 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
     return { text: `Border around your messages is ${wanted} for ${key}. ${later}${note}` }
   }
   if (verb === 'reset') {
-    // Everything goes but the list of past emoji, so titles still showing one lose it.
-    const mine = (await choicesToChange($))[key] ?? {}
-    const past = [...(mine.pastIcons ?? []), ...(mine.icon ? [mine.icon] : [])].slice(-PAST_ICONS)
     await saveChoice($, key, null)
-    if (past.length > 0) await saveChoice($, key, { pastIcons: past })
-    await update($, name, () => null)
     await update($, isHidden, () => false)
     await applyChoice($, key)
     const picked = await pickIdentity($, key)
@@ -1788,10 +1596,6 @@ async function modTint($: EngineInterface, args: string): Promise<{ text: string
         : DESKTOP_STEPS,
     }
   }
-  if (verb === 'name') {
-    await update($, name, () => rest || null)
-    return { text: rest ? `This window is now "${rest}".` : 'Window name cleared.' }
-  }
   if (verb === 'icon') {
     if (!rest) return await ask('repick')
     if (!isIcon(rest)) return { text: iconRefusal(rest) }
@@ -1832,12 +1636,6 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('classic.SessionStart', async ($, e, next) => {
-    const result = await next(e)
-    const sessionTitle = await titled($, e.session_title)
-    return sessionTitle ? { ...result, sessionTitle } : result
-  })
-
   // A surface joined (the desktop attaches after session.start): the band shows now, not at the
   // next 30-second heartbeat. A copy session.start never reached starts here (see isStarted).
   on('session.attach', async ($, e, next) => {
@@ -1847,17 +1645,13 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  // Tint adds nothing to a prompt and never sets a title: it only starts up here and picks a
+  // new repo's emoji at your first prompt (in any window that draws somewhere).
   on('classic.UserPromptSubmit', async ($, e, next) => {
     await ensureStarted($).catch(() => undefined)
-    let result = await next(e)
-    const sessionTitle = await titled($, e.session_title)
-    if (sessionTitle) result = { ...result, sessionTitle }
+    const result = await next(e)
     // Only your own prompts count; wakeups, notices and other sessions' messages do not.
-    const isOwn = e.source === undefined || e.source === 'user'
-    if (isOwn) await pickOnFirstPrompt($).catch(() => undefined)
-    // Any prompt may clean up a title that still starts with a repo's emoji (see titleNudge).
-    const note = await titleNudge($, e.session_title, isOwn).catch(() => undefined)
-    if (note) result = { ...result, additionalContext: [...(result.additionalContext ?? []), note] }
+    if (e.source === undefined || e.source === 'user') await pickOnFirstPrompt($).catch(() => undefined)
     return result
   })
 

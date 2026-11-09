@@ -8,7 +8,7 @@ labels: bug
 <!-- What you expected, what you saw. A screenshot helps a lot. -->
 
 **Where**
-- [ ] The mod inside Claude Code (titles, `/mod_tint`, terminal strip)
+- [ ] The mod inside Claude Code (`/mod_tint`, terminal strip)
 - [ ] The desktop tint (`/mod_tint css` pasted in the app)
 
 **Versions**

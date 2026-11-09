@@ -10,12 +10,11 @@
 
 # tint for Claude Code
 
-**Never type into the wrong Claude Code window again.** tint gives every repository its own emoji and color, and every window a number, so windows side by side are easy to tell apart.
+**Never type into the wrong Claude Code window again.** tint gives every repository its own emoji and color, and each window of a repository its own shade of it, so windows side by side are easy to tell apart.
 
 | Where | What you get |
 |---|---|
-| 🪟 **Window titles** | `Shop · Login bug`: the project and the main topic; the repo's emoji shows once, on its sidebar heading |
-| 💻 **Terminal** | a strip in the repo's color above the prompt, with the window's number |
+| 💻 **Terminal** | a strip above the prompt with the repo's emoji and name, in the window's shade of the repo's color |
 | 🖥️ **Desktop app** | the whole app in color: a ring around the window you're in (each window of a repo its own shade, up to 10), a soft tint, colored repo names in the sidebar, each thread's title in a soft shade of its folder's color (a work room from another folder with that folder's emoji) |
 
 ---
@@ -74,7 +73,6 @@ Type `/mod_tint` and what you want, in your own words. Claude works out what you
 ```
 /mod_tint new emoji
 /mod_tint make it lighter
-/mod_tint call this window Backend
 /mod_tint go back
 ```
 
@@ -118,7 +116,7 @@ printf '{"allowDevTools": false}\n' > ~/Library/Application\ Support/Claude/deve
 
 - **Emoji:** the first window of a new repo asks Claude Haiku once for an emoji that fits it. Later changes happen in your window, only when you ask.
 - **Colors:** measured from the emoji on your Mac by a small Swift program. No AI.
-- **Window titles:** every few prompts, a short hidden note asks Claude to rename the window if its main topic changed. Titles carry no repo emoji (the sidebar heading shows it), but a session another one started keeps its role mark (💬 a side chat, 🔧 a helper), and a title that starts with a keycap number (`2️⃣ CM · pricing calculator`, a hub's fixed number) keeps it. Tint never adds a number.
+- **Window titles:** none. Tint only colors: it never sets, suggests or checks a session's title, and shows no window number. Naming sessions is left to you, or to whatever starts them.
 - **Web:** at most one small request every 6 hours, asking GitHub for tint's newest version number. Nothing about you is sent.
 - **Files:** only `~/.claude/window-tint/`.
 - **Session id:** in the desktop app, the app's own id for each session (one variable, `CLAUDE_CODE_HOST_SESSION_ID`), kept in `rooms.json` with the folder the session runs in, so the sidebar knows which folder a work room is from. No other variable is read besides `HOME`.

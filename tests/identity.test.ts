@@ -92,8 +92,7 @@ const saved = (world: World) => JSON.parse(world.files.get(`${DIR}/repos.json`)!
 // The title the window has after the hook: what it sets, else the one it had.
 const title = async ($: Parameters<TestBody>[0], current: string) =>
   (await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: current } as never)).sessionTitle ?? current
-// Whether the window's label shows this mark first ("🧪  LAB-NOTES  1" in the terminal band):
-// titles carry no repository emoji, so the label is where a window's emoji shows.
+// Whether the window's label shows this mark first ("🧪  LAB-NOTES" in the terminal band).
 const BAND = {
   component: 'AbovePrompt',
   props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} },
@@ -212,7 +211,6 @@ test('overrides: /mod_tint color #hex and icon; each keeps the look before it, a
   expect(saved(world).matchday).toEqual({
     icon: '🏟️', color: '#111827', manualColor: true,
     previous: { icon: '🟩', color: '#111827', manualColor: true },
-    pastIcons: ['🟩'],
   })
   expect(await shows($, '🏟️')).toBe(true)
 
@@ -278,7 +276,7 @@ test('a scripted run that draws nowhere gets the help instead of a prompt for Cl
   expect(world.submitted).toEqual([])
 })
 
-test('the set tool applies what the person chose: emoji with its measured color, window name, undo', async ($, on) => {
+test('the set tool applies what the person chose: emoji with its measured color, hiding, undo', async ($, on) => {
   const world = setup(on, 'Claude-Labs', null, { 'Claude-Labs': { icon: '🧭', color: '#E82F32' } }, { '🧪': GREEN })
   await $.session.start({ cwd: '/work/Claude-Labs', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
@@ -286,16 +284,15 @@ test('the set tool applies what the person chose: emoji with its measured color,
   const set = (input: object) => $.tool.call({ tool: 'mcp__tint__set', ...input } as never)
   const picked = await set({ icon: '🧪' })
   expect(String(picked.result)).toContain('Claude-Labs is now 🧪 · #259F3E (green)')
-  expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' }, pastIcons: ['🧭'] })
+  expect(saved(world)['Claude-Labs']).toEqual({ icon: '🧪', color: '#259F3E', previous: { icon: '🧭', color: '#E82F32' } })
   expect(await shows($, '🧪')).toBe(true)
 
-  // A name is this window's alone, so the answer does not talk about other windows.
-  const named = await set({ name: 'Mods' })
-  expect(String(named.result)).toBe('This window is named "Mods".')
+  // Hiding is this window's alone, so the answer does not talk about other windows.
+  const hidden = await set({ hidden: true })
+  expect(String(hidden.result)).toBe('Tint hidden in this window.')
   expect(String(picked.result)).toContain('Other windows of the repository follow')
-  // On the desktop the hook leaves the title to the app: Claude's rename note carries the name.
-  expect(await title($, 'Work')).toBe('Work')
-  await set({ name: '' })
+  await set({ hidden: false })
+  // The title is never touched.
   expect(await title($, 'Work')).toBe('Work')
 
   await set({ undo: true })
@@ -311,99 +308,15 @@ test('the set tool applies what the person chose: emoji with its measured color,
   expect(saved(world)['Claude-Labs'].color).toBe('teal')
 })
 
-test('titles drop a repository\'s emoji and the old number; role marks and other emoji stay', async ($, on) => {
-  // In the terminal: on the desktop the hook never sets a title (titles.test.ts).
-  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } }, undefined, ['terminal'])
-  await $.session.start({ cwd: '/work/lab-notes', surface: 'terminal', isInteractive: true })
-  await world.clock.settle()
-
-  // The form before 1.9.0, whatever emoji and number it had, loses both.
-  expect(await title($, '🟧1️⃣ Mod ideas')).toBe('Mod ideas')
-  expect(await title($, '🧪1️⃣ Mod ideas')).toBe('Mod ideas')
-  expect(await title($, '🦊3️⃣ Mod ideas')).toBe('Mod ideas')
-  expect(await title($, '🧪12 Mod ideas')).toBe('Mod ideas')
-  // The form from 1.9.0 to 1.11 loses the repo's emoji; a plain title stays plain.
-  expect(await title($, '🧪 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  expect(await title($, 'Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  // A title that merely starts with an emoji and a number is no old prefix: two plain digits
-  // count only after a repository's emoji (a keycap after any emoji).
-  expect(await title($, '🔥2024 recap')).toBe('🔥2024 recap')
-  expect(await title($, '🔥20 recap')).toBe('🔥20 recap')
-  // An emoji no repository has is the title's own, a flag or a skin tone too.
-  expect(await title($, '🇩🇪 Berlin · Launch')).toBe('🇩🇪 Berlin · Launch')
-  expect(await title($, '👍🏽 Lab · Thanks')).toBe('👍🏽 Lab · Thanks')
-  expect(await title($, '📚 BAM · Templates')).toBe('📚 BAM · Templates')
-  // Role marks another session gave it at birth stay: side chat, helper. A repo emoji after one goes.
-  expect(await title($, '💬 Lab · Why 0.4?')).toBe('💬 Lab · Why 0.4?')
-  expect(await title($, '💬 🧪 Lab · Why 0.4?')).toBe('💬 Lab · Why 0.4?')
-  expect(await title($, '🔧 one-repo · Wrap fix')).toBe('🔧 one-repo · Wrap fix')
-  // A color square (before an emoji was picked) is tint's own placeholder: dropped.
-  expect(await title($, '🟥 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-
-  // Every emoji the repo had is dropped too, after a new emoji, a color change and another one.
-  await $.command.run({ command: 'mod_tint', args: 'icon 🔬' } as never)
-  expect(await title($, '🧪 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  expect(await title($, '🔬 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  await $.command.run({ command: 'mod_tint', args: 'color teal' } as never)
-  await $.command.run({ command: 'mod_tint', args: 'icon 🧫' } as never)
-  expect(await title($, '🧪 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  expect(await title($, '🔬 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  // Another repository's emoji is a repository's too (a work room named with it at birth): dropped.
-  const now = saved(world)
-  world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...now, 'BAM-Knowledge': { icon: '📚', color: '#22C55E' } }))
-  await world.clock.advance(31_000)
-  expect(await title($, '📚 BAM · Templates')).toBe('BAM · Templates')
-  // With or without its presentation selector, an emoji is the same.
-  world.files.set(`${DIR}/repos.json`, JSON.stringify({ ...now, tint: { icon: '🖌️', color: '#EC4899' } }))
-  await world.clock.advance(31_000)
-  expect(await title($, '🖌 Tint · Thread titles')).toBe('Tint · Thread titles')
-  expect(await title($, '💬 BAM · Why 0.4?')).toBe('💬 BAM · Why 0.4?')
-  world.files.set(`${DIR}/repos.json`, JSON.stringify(now))
-  await world.clock.advance(30_000)
-  // And after a reset, the past emoji are still known.
-  await $.command.run({ command: 'mod_tint', args: 'reset' } as never)
-  expect(saved(world)['lab-notes'].pastIcons).toEqual(['🧪', '🔬', '🧫'])
-  expect(await title($, '🧫 Lab · Mod ideas')).toBe('Lab · Mod ideas')
-  await $.command.run({ command: 'mod_tint', args: 'icon 🔬' } as never)
-
-  // A window name keeps the title's role mark, and adds no emoji.
-  await $.command.run({ command: 'mod_tint', args: 'name Backend' } as never)
-  expect(await title($, '💬 Lab · Why 0.4?')).toBe('💬 Backend')
-  expect(await title($, 'Mod ideas')).toBe('Backend')
-  expect(await title($, '🔬 Lab · Mod ideas')).toBe('Backend')
-
-  // Tint hidden: the title is left as it is.
-  await $.command.run({ command: 'mod_tint', args: 'off' } as never)
-  expect(await title($, '🟧1️⃣ Mod ideas')).toBe('🟧1️⃣ Mod ideas')
-})
-
-test('the rename note drops the repo emoji and the old number, and adds none', async ($, on) => {
-  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED' } })
+test('reset forgets the repo\'s choices whole, an old past-emoji list too', async ($, on) => {
+  const world = setup(on, 'lab-notes', null, { 'lab-notes': { icon: '🧪', color: '#7C3AED', pastIcons: ['🔬'] } })
   await $.session.start({ cwd: '/work/lab-notes', surface: 'desktop', isInteractive: true })
   await world.clock.settle()
-  const noteFor = async (current: string) =>
-    ((await $.classic.UserPromptSubmit({ prompt: 'hi', session_title: current } as never)).additionalContext ?? []).join('\n')
-  const old = await noteFor('🟧1️⃣ Mod ideas')
-  expect(old).toContain('Drop the emoji and old window number at its start')
-  expect(old).toContain('(now "Mod ideas")')
-  expect(old).toContain('"<Project> · <main topic>"')
-  expect(old).not.toContain('🧪')
-  const marked = await noteFor('🧪 Lab · Mod ideas')
-  expect(marked).toContain('Drop the leading "🧪"')
-  expect(marked).toContain('(now "Lab · Mod ideas")')
-  // A past emoji, and a repo emoji after a role mark, are asked about too.
-  await $.command.run({ command: 'mod_tint', args: 'icon 🔬' } as never)
-  expect(await noteFor('🧪 Lab · Old emoji')).toContain('Drop the leading "🧪"')
-  const side = await noteFor('💬 🔬 Lab · Why')
-  expect(side).toContain('Keep its leading "💬" as it is')
-  expect(side).toContain('Drop the "🔬" after "💬" and keep the words (now "Lab · Why")')
-  expect(side).toContain('"💬 <Project> · <main topic>"')
-  // With a window name the note never says to keep the old words.
-  await $.command.run({ command: 'mod_tint', args: 'name Backend' } as never)
-  const named = await noteFor('🔬 Lab · Login')
-  expect(named).toContain('Drop the leading "🔬" at its start; add no other emoji.')
-  expect(named).not.toContain('keep the words')
-  expect(named).toContain('exactly "Backend"')
+  await $.command.run({ command: 'mod_tint', args: 'icon 🧫' } as never)
+  // A new emoji keeps the one before as `previous`; an old past-emoji list is left as it is, never added to.
+  expect(saved(world)['lab-notes']).toEqual({ icon: '🧫', color: '#7C3AED', pastIcons: ['🔬'], previous: { icon: '🧪', color: '#7C3AED' } })
+  await $.command.run({ command: 'mod_tint', args: 'reset' } as never)
+  expect(saved(world)['lab-notes']?.pastIcons).toBeUndefined()
 })
 
 test('an unreadable repos.json is never written over; saves go to a temporary file, then rename', async ($, on) => {

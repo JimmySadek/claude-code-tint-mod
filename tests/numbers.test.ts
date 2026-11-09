@@ -89,11 +89,18 @@ test('a resumed session claims afresh: its old claim time never takes an open wi
   expect(files.has(`${DIR}/windows/me.json`)).toBe(true)
 })
 
-test('the heartbeat finds a number taken by an earlier claim and moves on; the label follows', async ($, on) => {
+test('the heartbeat finds a slot taken by an earlier claim and moves on; the shade follows, no number shows', async ($, on) => {
   const files = new Map<string, string>()
   const clock = world(on, files)
   await $.session.start(START)
   expect(mine(files).n).toBe(1)
+  const first = await $.ui.mount({
+    plugin: 'tint', surface: 'terminal', component: 'AbovePrompt',
+    props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } as never,
+  })
+  const shadeBefore = (await first.find({ type: 'Text', text: /CLAUDE-MODS/ }))?.props.backgroundColor
+  expect(shadeBefore).toBeDefined()
+  await first.unmount()
   // A claim written just after this window's check, by a window that claimed earlier.
   files.set(`${DIR}/windows/zzz.json`, record(1, NOW - 1_000))
   await clock.advance(31_000)
@@ -102,8 +109,11 @@ test('the heartbeat finds a number taken by an earlier claim and moves on; the l
     plugin: 'tint', surface: 'terminal', component: 'AbovePrompt',
     props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 80, scroll: { offset: 0, bodyRows: 6 }, view: {} } as never,
   })
-  expect(await strip.find({ type: 'Text', text: /CLAUDE-MODS\s+2/ })).toBeDefined()
+  const label = await strip.find({ type: 'Text', text: /CLAUDE-MODS/ })
+  expect(label).toBeDefined()
+  expect(await strip.find({ type: 'Text', text: /CLAUDE-MODS\s+\d/ })).toBeUndefined()
   await strip.unmount()
+  expect(label?.props.backgroundColor).not.toBe(shadeBefore)
   // Settled: the next heartbeat keeps 2.
   await clock.advance(30_000)
   expect(mine(files).n).toBe(2)

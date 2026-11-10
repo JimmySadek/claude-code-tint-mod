@@ -2,6 +2,26 @@
 
 All notable changes to this mod. Versions follow [semantic versioning](https://semver.org/) as described in [docs/releasing.md](docs/releasing.md).
 
+## [2.0.0] - 2026-11-10
+
+Tint now only colors your windows. It no longer names sessions. **1.14.0 is the last version with naming.** If you rely on it, stay on 1.14.0, or let whatever starts your sessions name them.
+
+### Removed
+- **Session naming.** Tint no longer sets, suggests or checks a session's title:
+  - No hidden title reminder at your prompts, so Claude is no longer asked to rename a session when its topic drifts.
+  - No title from tint's hooks in the terminal or the desktop app.
+  - Old titles are left as they are: a repository's emoji, the form before 1.9.0 (`🧪1️⃣ Topic`) and a hub's keycap number are no longer removed or kept by tint.
+- **`/mod_tint name` and `/mod_tint titles`.** Both commands are gone. Typed now, Claude says that tint does not name or number windows and changes nothing.
+- **The `name` and `titles` fields of tint's tool** (`mcp__tint__set`). It still takes `icon`, `color`, `hidden`, `frame`, `pattern` and `undo`.
+- **The window number in the terminal strip.** The strip shows the repository's emoji and name only.
+
+### Unchanged
+- Every window of a repository still gets its own shade. A hidden slot picks it and is never shown.
+- `desktop/tint.js` is unchanged, so there is no new desktop script and no app restart for this.
+- Saved data in `~/.claude/window-tint/` stays where it is. An old `pastIcons` list in `repos.json` is left there, unread.
+
+Checked with the test suite: `tests/no-naming.test.ts` fails on 1.14.0 and passes here, and all 70 tests pass. Not yet tested in the real app.
+
 ## [1.14.0] - 2026-11-04
 
 ### Changed
